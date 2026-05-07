@@ -148,6 +148,11 @@
         <div class="card">
             <h2>⏳ Pacientes en Espera</h2>
             <div id="lista-turnos"></div>
+            <div style="margin-top:18px;">
+                <h3 style="margin:8px 0;font-size:15px;color:var(--text);">📁 Documentos del paciente activo</h3>
+                <div id="docs-paciente" style="max-height:160px;overflow-y:auto;"></div>
+                <button onclick="cargarDocumentosActivos()" style="background:var(--gray-light);color:var(--text);padding:6px 12px;border-radius:8px;font-size:12px;margin-top:6px;">↻ Refrescar</button>
+            </div>
             <div id="panel-chat" class="chat-container">
                 <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--gray-light); padding-bottom: 15px; gap: 10px;">
                     <h3 style="margin:0;">💬 Consulta Activa: <span id="nombre-paciente-chat" style="color: var(--primary);">...</span></h3>
@@ -168,9 +173,12 @@
     </div>
 
     <div id="video-wrapper-medico">
-        <video id="local-video-medico" autoplay muted playsinline></video>
+        <div style="display:flex; gap:6px; padding:6px; background:#111;">
+            <video id="local-video-medico" autoplay muted playsinline style="width:160px; height:120px; object-fit:cover; border-radius:8px;"></video>
+            <video id="remote-video-medico" autoplay playsinline style="width:240px; height:180px; object-fit:cover; border-radius:8px; background:#000;"></video>
+        </div>
         <div class="video-controls">
-            <span style="color:white; font-size: 12px; font-weight: bold; align-self: center;">🎥 Transmitiendo</span>
+            <span style="color:white; font-size: 12px; font-weight: bold; align-self: center;">🎥 Videoconsulta</span>
             <button class="danger" onclick="detenerVideoMedico()" style="padding: 5px 15px; font-size: 12px;">Colgar</button>
         </div>
     </div>
@@ -181,10 +189,13 @@
         const socket = new WebSocket(WS_URL);
         let pacienteActual = "";
         let streamMedico = null;
+        let pcMedico = null;
+        let myUserName = "";
+        const ICE_CONFIG = { iceServers: [{ urls: ["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302"] }] };
 
-        socket.onopen = () => console.log("✅ Conectado al servidor Java");
+        socket.onopen = () => console.log("Conectado al servidor Turnix");
 
-        socket.onmessage = (event) => {
+        socket.onmessage = async (event) => {
             const data = event.data;
             console.log("📥 Mensaje:", data);
 
@@ -199,10 +210,12 @@
             if (data.startsWith("LOGIN_OK:MEDICO") || data.startsWith("LOGIN_OK:ADMIN")) {
                 const partes = data.split(":");
                 if(partes.length > 2) document.getElementById('nombre-profesional').innerText = partes[2];
+                myUserName = partes[4] || partes[2] || "";
                 document.getElementById('login-medico').style.display = 'none';
                 document.querySelector('.btn-volver').style.display = 'none';
                 document.getElementById('dashboard-medico').style.display = 'grid';
-                addLog("✅ Sesión iniciada correctamente.");
+                addLog("Sesión iniciada correctamente.");
+                cargarDocumentosActivos();
                 return;
             }
 
@@ -230,8 +243,37 @@
                 return;
             }
 
+            if (data.startsWith("DOCUMENTO_NUEVO:")) {
+                const partes = data.split(":");
+                const nombre = partes[1] || "archivo";
+                addLog("📎 Documento recibido: " + nombre);
+                cargarDocumentosActivos();
+                return;
+            }
+
             if (data === "NOTIFICAR_VIDEO_PACIENTE") {
                 pintarAlertaSistema("📹 El paciente ha encendido su cámara.");
+                return;
+            }
+
+            // ========== WEBRTC ==========
+            if (data.startsWith("WEBRTC_ANSWER:")) {
+                const partes = data.split(":", 3);
+                if (pcMedico && partes[2]) {
+                    try { await pcMedico.setRemoteDescription(JSON.parse(partes[2])); } catch (e) { console.warn(e); }
+                }
+                return;
+            }
+            if (data.startsWith("WEBRTC_ICE:")) {
+                const partes = data.split(":", 3);
+                if (pcMedico && partes[2]) {
+                    try { await pcMedico.addIceCandidate(JSON.parse(partes[2])); } catch (e) { console.warn("ICE fail", e); }
+                }
+                return;
+            }
+            if (data.startsWith("WEBRTC_HANGUP:")) {
+                detenerVideoMedico();
+                pintarAlertaSistema("📞 El paciente colgó la videollamada.");
                 return;
             }
 
@@ -258,6 +300,7 @@
             if (item) item.remove();
             if (!desdeServidor) socket.send("INICIAR_CONSULTA_MANUAL:" + nombre);
             addLog("📋 Atendiendo a: " + nombre);
+            cargarDocumentosActivos();
             document.getElementById('mensaje-medico').focus();
         }
 
@@ -271,19 +314,24 @@
             }
         }
 
-        function enviarImagenChat(input) {
-            if (input.files && input.files[0]) {
+        async function enviarImagenChat(input) {
+            // El médico también puede subir archivos (ej: receta) y se los envía al paciente
+            if (!input.files || !input.files[0] || !pacienteActual) return;
+            const file = input.files[0];
+            const fd = new FormData();
+            // Usamos id_turno via paciente: el backend asocia al turno EN_ESPERA del paciente,
+            // pero como el medico no es paciente, usamos directamente CHAT con base64 small fallback.
+            // Para consistencia, simplemente enviamos la URL via chat tras subir.
+            try {
                 const reader = new FileReader();
-                reader.onload = function(e) {
-                    const base64Img = e.target.result;
-                    if (pacienteActual) {
-                        socket.send("CHAT_PRIVADO:" + pacienteActual + ":" + base64Img);
-                        pintarMensaje("medico", base64Img);
-                    }
+                reader.onload = (e) => {
+                    const b64 = e.target.result;
+                    socket.send("CHAT_PRIVADO:" + pacienteActual + ":" + b64);
+                    pintarMensaje("medico", b64);
                 };
-                reader.readAsDataURL(input.files[0]);
-                input.value = "";
-            }
+                reader.readAsDataURL(file);
+            } catch (e) { console.error(e); }
+            input.value = "";
         }
 
         function pintarMensaje(tipo, texto) {
@@ -294,9 +342,32 @@
             let contenido = texto;
             if (texto.startsWith("data:image")) {
                 contenido = `<img src="${texto}" onclick="abrirImagenFullScreen(this.src)" style="max-width:100%; border-radius:8px; cursor:zoom-in;">`;
+            } else if (/^\/api\/files\/.+/.test(texto.trim())) {
+                const url = texto.trim();
+                if (/\.(png|jpe?g|gif|webp)(\?|$)/i.test(url)) {
+                    contenido = `<img src="${url}" onclick="abrirImagenFullScreen(this.src)" style="max-width:100%; border-radius:8px; cursor:zoom-in;">`;
+                } else {
+                    contenido = `📄 <a href="${url}" target="_blank" style="color:inherit;text-decoration:underline">Descargar archivo</a>`;
+                }
             }
             win.innerHTML += `<div class="bubble ${clase}"><b>${autor}:</b> <br> ${contenido}<span class="timestamp">${hora}</span></div>`;
             win.scrollTop = win.scrollHeight;
+        }
+
+        async function cargarDocumentosActivos() {
+            try {
+                const r = await fetch("/api/documents/active");
+                if (!r.ok) return;
+                const docs = await r.json();
+                const cont = document.getElementById('docs-paciente');
+                if (!cont) return;
+                if (!docs.length) { cont.innerHTML = '<div style="color:#7f8c8d;font-size:13px;">Sin documentos.</div>'; return; }
+                cont.innerHTML = docs.map(d => `
+                    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#f8fafc;border-radius:8px;margin:4px 0;border:1px solid var(--gray-light);">
+                        <div style="font-size:13px;">📎 <b>${d.nombre_archivo}</b><br><small style="color:#64748b">${d.cliente} · ${new Date(d.subido_en).toLocaleString()}</small></div>
+                        <a href="${d.ruta_archivo}" target="_blank" style="background:var(--primary);color:white;padding:6px 12px;border-radius:8px;text-decoration:none;font-size:12px;">Abrir</a>
+                    </div>`).join("");
+            } catch (e) { console.warn("docs", e); }
         }
 
         function pintarAlertaSistema(texto) {
@@ -392,22 +463,42 @@
         }
 
         async function iniciarVideoMedico() {
+            if (!pacienteActual) { alert("Abre primero la consulta de un paciente."); return; }
             try {
                 streamMedico = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                 document.getElementById('local-video-medico').srcObject = streamMedico;
                 document.getElementById('video-wrapper-medico').style.display = 'flex';
-                socket.send("VIDEO_LLAMADA_INICIADA");
-                pintarAlertaSistema("🎥 Has iniciado la transmisión de vídeo.");
+
+                pcMedico = new RTCPeerConnection(ICE_CONFIG);
+                pcMedico.ontrack = (e) => {
+                    document.getElementById('remote-video-medico').srcObject = e.streams[0];
+                };
+                pcMedico.onicecandidate = (e) => {
+                    if (e.candidate) socket.send(`WEBRTC_ICE:${pacienteActual}:${JSON.stringify(e.candidate)}`);
+                };
+                streamMedico.getTracks().forEach(t => pcMedico.addTrack(t, streamMedico));
+                const offer = await pcMedico.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: true });
+                await pcMedico.setLocalDescription(offer);
+                socket.send(`WEBRTC_OFFER:${pacienteActual}:${JSON.stringify(offer)}`);
+                pintarAlertaSistema("📹 Llamando a " + pacienteActual + " ...");
             } catch (err) {
-                alert("Error al iniciar cámara. Revisa los permisos de tu navegador.");
+                console.error(err);
+                alert("Error al iniciar cámara: " + err.message);
             }
         }
 
         function detenerVideoMedico() {
+            if (pcMedico) {
+                try { pcMedico.close(); } catch (_) {}
+                pcMedico = null;
+                if (pacienteActual) socket.send(`WEBRTC_HANGUP:${pacienteActual}`);
+            }
             if (streamMedico) {
                 streamMedico.getTracks().forEach(track => track.stop());
                 streamMedico = null;
             }
+            const rv = document.getElementById('remote-video-medico');
+            if (rv) rv.srcObject = null;
             document.getElementById('video-wrapper-medico').style.display = 'none';
         }
 

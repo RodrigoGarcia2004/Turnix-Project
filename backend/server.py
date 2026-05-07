@@ -8,17 +8,23 @@ El codigo Java original queda preservado en /app/turnix/source/Turnix como refer
 import os
 import logging
 import asyncio
+import uuid
+import mimetypes
 from contextlib import asynccontextmanager
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, APIRouter
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, APIRouter, UploadFile, File, Form, HTTPException
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import asyncpg
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
+
+UPLOADS_DIR = Path(os.environ.get("UPLOADS_DIR", "/app/uploads"))
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("turnix")
@@ -127,6 +133,88 @@ async def health():
 
 
 # ----------------------------------------------------------------------
+# Documentos: upload + listado + descarga
+# Almacenamiento local en /app/uploads. La tabla `documentos` guarda la
+# ruta servible: /api/files/{filename}. Si despues quieres usar Supabase
+# Storage, basta con cambiar la implementacion de upload_documento().
+# ----------------------------------------------------------------------
+ALLOWED_MIME = {
+    "image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp",
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/msword",
+    "text/plain",
+}
+MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+@api.post("/upload")
+async def upload_documento(
+    user_id: int = Form(...),
+    file: UploadFile = File(...),
+):
+    """Subida de documento del paciente. Vincula al turno EN_ESPERA/EN_CONSULTA mas reciente."""
+    contenido = await file.read()
+    if len(contenido) > MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Archivo demasiado grande (max 10MB)")
+    mime = file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
+    if mime not in ALLOWED_MIME:
+        raise HTTPException(status_code=415, detail=f"Tipo no permitido: {mime}")
+
+    safe_name = (file.filename or "archivo").replace("/", "_").replace("\\", "_")
+    fname = f"{uuid.uuid4().hex}_{safe_name}"
+    dest = UPLOADS_DIR / fname
+    dest.write_bytes(contenido)
+
+    url = f"/api/files/{fname}"
+
+    async with app.state.pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """INSERT INTO documentos (id_turno, nombre_archivo, ruta_archivo, tipo_mime, subido_en)
+               VALUES (
+                 (SELECT id FROM turnos
+                   WHERE id_paciente=$1 AND estado IN ('EN_ESPERA','EN_CONSULTA')
+                   ORDER BY id DESC LIMIT 1),
+                 $2, $3, $4, NOW())
+               RETURNING id, id_turno""",
+            user_id, safe_name, url, mime,
+        )
+
+    # Notificar al medico via WS
+    for c in all_clients:
+        u = get_user(c)
+        if u and u["rol"] in ("MEDICO", "ADMIN"):
+            await safe_send(c, f"DOCUMENTO_NUEVO:{safe_name}:{url}:{mime}")
+
+    return {"id": row["id"], "id_turno": row["id_turno"], "url": url, "nombre": safe_name, "mime": mime}
+
+
+@api.get("/files/{fname}")
+async def get_file(fname: str):
+    safe = Path(fname).name  # impide path traversal
+    p = UPLOADS_DIR / safe
+    if not p.exists():
+        raise HTTPException(status_code=404)
+    mime = mimetypes.guess_type(safe)[0] or "application/octet-stream"
+    return FileResponse(p, media_type=mime, filename=safe.split("_", 1)[-1] if "_" in safe else safe)
+
+
+@api.get("/documents/active")
+async def docs_active():
+    """Documentos del turno EN_ESPERA/EN_CONSULTA mas antiguo (para el medico)."""
+    async with app.state.pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT d.id, d.nombre_archivo, d.ruta_archivo, d.tipo_mime, d.subido_en, d.id_turno,
+                      t.cliente
+                 FROM documentos d
+                 JOIN turnos t ON t.id = d.id_turno
+                WHERE t.estado IN ('EN_ESPERA','EN_CONSULTA')
+                ORDER BY d.subido_en DESC"""
+        )
+    return [dict(r) for r in rows]
+
+
+# ----------------------------------------------------------------------
 # WebSocket - protocolo replicado del ServidorWeb.java
 # ----------------------------------------------------------------------
 @api.websocket("/ws")
@@ -175,7 +263,7 @@ async def handle_message(ws: WebSocket, message: str):
                 set_user(ws, user)
                 # Si es medico/admin, enviar reputacion actual
                 nombre = display_name(user)
-                await safe_send(ws, f"LOGIN_OK:{user['rol']}:{nombre}")
+                await safe_send(ws, f"LOGIN_OK:{user['rol']}:{nombre}:{user['id']}:{user['usuario']}")
                 if user["rol"] in ("MEDICO", "ADMIN"):
                     media = 0.0
                     total = user["total"] or 0
@@ -431,6 +519,33 @@ async def handle_message(ws: WebSocket, message: str):
 
     if message == "CONFIRMAR_ASISTENCIA":
         return
+
+    # ==================== WEBRTC SIGNALING ====================
+    # Formatos:
+    #   WEBRTC_OFFER:targetUser:<json sdp>
+    #   WEBRTC_ANSWER:targetUser:<json sdp>
+    #   WEBRTC_ICE:targetUser:<json candidate>
+    #   WEBRTC_HANGUP:targetUser
+    # El servidor reenvia al WS con username == targetUser anteponiendo el sender.
+    for kind in ("WEBRTC_OFFER", "WEBRTC_ANSWER", "WEBRTC_ICE", "WEBRTC_HANGUP"):
+        prefix = kind + ":"
+        if message.startswith(prefix):
+            partes = message.split(":", 2)
+            target = partes[1] if len(partes) >= 2 else ""
+            payload = partes[2] if len(partes) >= 3 else ""
+            sender = get_user(ws)
+            sender_name = sender["usuario"] if sender else "anon"
+            forwarded = f"{kind}:{sender_name}" + (f":{payload}" if payload else "")
+            for c in all_clients:
+                u = get_user(c)
+                if not u:
+                    continue
+                if (u["usuario"] == target
+                        or (u.get("nombre_completo") or "") == target
+                        or u["usuario"].lower() == target.lower()):
+                    await safe_send(c, forwarded)
+                    break
+            return
 
     log.info("Comando no reconocido: %s", message[:60])
 
