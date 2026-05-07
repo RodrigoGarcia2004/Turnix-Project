@@ -88,4 +88,12 @@ android-sdk/
 
 # Turnix runtime
 uploads/
-/app/uploads/
+/app/uploads/-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
