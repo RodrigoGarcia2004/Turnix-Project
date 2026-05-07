@@ -42,6 +42,14 @@
         .msg-medico { background: #dcf8c6; align-self: flex-end; color: #166534; }
         .timestamp { font-size: 10px; color: rgba(0,0,0,0.5); margin-top: 6px; display: block; text-align: right; }
         .sistema-alerta { align-self: center; background: #fff3cd; color: #856404; font-weight: bold; border-radius: 20px; padding: 6px 16px; font-size: 12px; margin: 5px 0; }
+        .sistema-conectado { align-self: center; background: #d1fae5; color: #065f46; font-weight: bold; border-radius: 20px; padding: 6px 16px; font-size: 12px; margin: 5px 0; }
+        .sistema-desconectado { align-self: center; background: #fee2e2; color: #991b1b; font-weight: bold; border-radius: 20px; padding: 6px 16px; font-size: 12px; margin: 5px 0; }
+        .tab-btn { background:transparent; color:var(--gray-dark); border:none; padding:10px 14px; cursor:pointer; font-weight:600; font-size:13px; border-bottom:3px solid transparent; }
+        .tab-btn.tab-active { color: var(--primary); border-bottom-color: var(--primary); }
+        .doc-item { display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:#f8fafc;border-radius:8px;margin:6px 0;border:1px solid var(--gray-light); }
+        .msg-hist { padding:10px 12px;border-radius:10px;margin:5px 0;font-size:13px; max-width: 85%; }
+        .msg-hist.medico { background:#dbeafe; color:#1e3a8a; align-self:flex-end; }
+        .msg-hist.paciente { background:#f1f5f9; color:#1e293b; align-self:flex-start; }
         .chat-input-group { display: flex; gap: 10px; align-items: center; }
         .btn-adjunto { background: var(--gray-light); color: var(--text); padding: 12px; display: flex; align-items: center; justify-content: center; font-size: 18px; width: 45px; height: 45px; border-radius: 10px; flex-shrink: 0; transition: all 0.3s ease; }
         .btn-adjunto:hover { background: var(--gray-dark); color: white; transform: scale(1.1); }
@@ -119,6 +127,21 @@
         <img id="img-fullscreen" src="" style="max-width: 90%; max-height: 90%; border-radius: 8px; box-shadow: 0 0 30px rgba(0,0,0,0.8);">
     </div>
 
+    <!-- MODAL HISTORIAL / DOCUMENTOS DEL PACIENTE -->
+    <div id="modal-historial" class="modal-overlay">
+        <div class="modal-content" style="max-width:760px; width:92%; max-height:88vh; overflow-y:auto;">
+            <span class="close-modal" onclick="cerrarModalHistorial()">✕</span>
+            <h3 style="color:var(--primary);margin-top:0;">📁 Historial del paciente</h3>
+            <p style="color:var(--gray-dark);font-size:13px;margin:0 0 14px;">Paciente activo: <b id="hist-nombre-paciente">—</b></p>
+            <div style="display:flex; gap:6px; border-bottom:2px solid var(--gray-light); margin-bottom:14px;">
+                <button onclick="histTab('docs')" id="tab-docs" class="tab-btn tab-active">📎 Documentos</button>
+                <button onclick="histTab('chat')" id="tab-chat" class="tab-btn">💬 Chat de la consulta</button>
+                <button onclick="histTab('turnos')" id="tab-turnos" class="tab-btn">📅 Turnos previos</button>
+            </div>
+            <div id="hist-content" style="min-height:240px;"></div>
+        </div>
+    </div>
+
     <!-- DASHBOARD -->
     <div id="dashboard-medico" class="dashboard" style="display:none;">
         <div class="card">
@@ -141,6 +164,7 @@
             </div>
             <div id="log-actividad">Esperando actividad...</div>
             <hr style="border: 0; border-top: 1px solid var(--gray-light); margin: 22px 0;">
+            <button onclick="abrirModalHistorial()" style="background: #0d9488; width: 100%; margin-bottom: 10px;">📁 Documentos / Historial del paciente</button>
             <button onclick="verMisValoraciones()" style="background: #f39c12; width: 100%; margin-bottom: 12px;">⭐ Ver Mis Valoraciones</button>
             <button class="llamar" onclick="llamarSiguiente()">🔔 Llamar Siguiente Turno</button>
         </div>
@@ -148,11 +172,6 @@
         <div class="card">
             <h2>⏳ Pacientes en Espera</h2>
             <div id="lista-turnos"></div>
-            <div style="margin-top:18px;">
-                <h3 style="margin:8px 0;font-size:15px;color:var(--text);">📁 Documentos del paciente activo</h3>
-                <div id="docs-paciente" style="max-height:160px;overflow-y:auto;"></div>
-                <button onclick="cargarDocumentosActivos()" style="background:var(--gray-light);color:var(--text);padding:6px 12px;border-radius:8px;font-size:12px;margin-top:6px;">↻ Refrescar</button>
-            </div>
             <div id="panel-chat" class="chat-container">
                 <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--gray-light); padding-bottom: 15px; gap: 10px;">
                     <h3 style="margin:0;">💬 Consulta Activa: <span id="nombre-paciente-chat" style="color: var(--primary);">...</span></h3>
@@ -191,6 +210,7 @@
         let streamMedico = null;
         let pcMedico = null;
         let myUserName = "";
+        let myUserId = null;
         const ICE_CONFIG = { iceServers: [{ urls: ["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302"] }] };
 
         socket.onopen = () => console.log("Conectado al servidor Turnix");
@@ -210,12 +230,13 @@
             if (data.startsWith("LOGIN_OK:MEDICO") || data.startsWith("LOGIN_OK:ADMIN")) {
                 const partes = data.split(":");
                 if(partes.length > 2) document.getElementById('nombre-profesional').innerText = partes[2];
+                myUserId = partes[3] ? parseInt(partes[3], 10) : null;
                 myUserName = partes[4] || partes[2] || "";
                 document.getElementById('login-medico').style.display = 'none';
                 document.querySelector('.btn-volver').style.display = 'none';
                 document.getElementById('dashboard-medico').style.display = 'grid';
                 addLog("Sesión iniciada correctamente.");
-                cargarDocumentosActivos();
+                cargarFotoPerfilMedico();
                 return;
             }
 
@@ -253,6 +274,26 @@
 
             if (data === "NOTIFICAR_VIDEO_PACIENTE") {
                 pintarAlertaSistema("📹 El paciente ha encendido su cámara.");
+                return;
+            }
+
+            // ========== Sistema: paciente conectado / desconectado / aceptó ==========
+            if (data.startsWith("SISTEMA_PACIENTE_CONECTADO:")) {
+                const partes = data.split(":");
+                addLog("🟢 Paciente conectado: " + (partes[2] || partes[1]));
+                pintarAlertaSistemaTipo("conectado", "🟢 " + (partes[2] || partes[1]) + " se ha conectado al sistema.");
+                return;
+            }
+            if (data.startsWith("SISTEMA_PACIENTE_DESCONECTADO:")) {
+                const partes = data.split(":");
+                addLog("🔴 Paciente desconectado: " + (partes[2] || partes[1]));
+                pintarAlertaSistemaTipo("desconectado", "🔴 " + (partes[2] || partes[1]) + " se ha desconectado.");
+                return;
+            }
+            if (data.startsWith("SISTEMA_PACIENTE_ACEPTO:")) {
+                const partes = data.split(":");
+                addLog("✅ " + (partes[2] || partes[1]) + " aceptó la consulta.");
+                pintarAlertaSistemaTipo("conectado", "✅ " + (partes[2] || partes[1]) + " ha aceptado la llamada.");
                 return;
             }
 
@@ -355,24 +396,87 @@
         }
 
         async function cargarDocumentosActivos() {
+            // Mantenido por compatibilidad: si hay paciente activo, refresca la pestaña docs del modal
+            if (!pacienteActual) return;
+            if (document.getElementById('modal-historial').style.display === 'flex') {
+                histTab(currentHistTab);
+            }
+        }
+
+        // ============= MODAL HISTORIAL DEL PACIENTE =============
+        let currentHistTab = 'docs';
+        function abrirModalHistorial() {
+            if (!pacienteActual) { alert("Abre primero la consulta de un paciente."); return; }
+            document.getElementById('hist-nombre-paciente').textContent = pacienteActual;
+            document.getElementById('modal-historial').style.display = 'flex';
+            histTab('docs');
+        }
+        function cerrarModalHistorial() {
+            document.getElementById('modal-historial').style.display = 'none';
+        }
+        async function histTab(tab) {
+            currentHistTab = tab;
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('tab-active'));
+            const btn = document.getElementById('tab-' + tab);
+            if (btn) btn.classList.add('tab-active');
+            const cont = document.getElementById('hist-content');
+            cont.innerHTML = '<div style="text-align:center;padding:30px;color:var(--gray-dark);">Cargando...</div>';
             try {
-                const r = await fetch("/api/documents/active");
-                if (!r.ok) return;
-                const docs = await r.json();
-                const cont = document.getElementById('docs-paciente');
-                if (!cont) return;
-                if (!docs.length) { cont.innerHTML = '<div style="color:#7f8c8d;font-size:13px;">Sin documentos.</div>'; return; }
-                cont.innerHTML = docs.map(d => `
-                    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#f8fafc;border-radius:8px;margin:4px 0;border:1px solid var(--gray-light);">
-                        <div style="font-size:13px;">📎 <b>${d.nombre_archivo}</b><br><small style="color:#64748b">${d.cliente} · ${new Date(d.subido_en).toLocaleString()}</small></div>
-                        <a href="${d.ruta_archivo}" target="_blank" style="background:var(--primary);color:white;padding:6px 12px;border-radius:8px;text-decoration:none;font-size:12px;">Abrir</a>
-                    </div>`).join("");
-            } catch (e) { console.warn("docs", e); }
+                if (tab === 'docs') {
+                    const r = await fetch('/api/historial/paciente/' + encodeURIComponent(pacienteActual));
+                    const data = await r.json();
+                    if (!data.documentos.length) { cont.innerHTML = '<div style="color:var(--gray-dark);text-align:center;padding:30px;">No hay documentos en el historial de este paciente.</div>'; return; }
+                    cont.innerHTML = data.documentos.map(d => `
+                        <div class="doc-item">
+                            <div style="font-size:13px;">📎 <b>${d.nombre_archivo}</b><br><small style="color:var(--gray-dark)">Turno #${d.id_turno} · ${new Date(d.subido_en).toLocaleString()}</small></div>
+                            <a href="${d.ruta_archivo}" target="_blank" style="background:var(--primary);color:white;padding:8px 14px;border-radius:8px;text-decoration:none;font-size:12px;font-weight:bold;">Abrir</a>
+                        </div>`).join('');
+                } else if (tab === 'chat') {
+                    const r = await fetch('/api/historial/paciente/' + encodeURIComponent(pacienteActual));
+                    const data = await r.json();
+                    if (!data.mensajes.length) { cont.innerHTML = '<div style="color:var(--gray-dark);text-align:center;padding:30px;">No hay mensajes registrados todavía.</div>'; return; }
+                    const msgs = data.mensajes.slice().reverse();
+                    cont.innerHTML = '<div style="display:flex;flex-direction:column;max-height:400px;overflow-y:auto;padding:5px;">' + msgs.map(m => {
+                        const esMedico = m.emisor_rol === 'MEDICO' || m.emisor_rol === 'ADMIN';
+                        const cls = esMedico ? 'medico' : 'paciente';
+                        const autor = esMedico ? '👨‍⚕️ Médico' : '👤 Paciente';
+                        const hora = new Date(m.fecha_envio).toLocaleString();
+                        let contenido = m.contenido || '';
+                        if (/^\/api\/files\//.test(contenido) && /\.(png|jpe?g|gif|webp)/i.test(contenido)) {
+                            contenido = `<img src="${contenido}" style="max-width:100%;border-radius:6px;">`;
+                        } else if (/^\/api\/files\//.test(contenido)) {
+                            contenido = `<a href="${contenido}" target="_blank">📄 Descargar archivo</a>`;
+                        }
+                        return `<div class="msg-hist ${cls}"><b style="font-size:11px;opacity:0.7;">${autor} · ${hora}</b><br>${contenido}</div>`;
+                    }).join('') + '</div>';
+                } else if (tab === 'turnos') {
+                    const r = await fetch('/api/historial/paciente/' + encodeURIComponent(pacienteActual));
+                    const data = await r.json();
+                    if (!data.turnos.length) { cont.innerHTML = '<div style="color:var(--gray-dark);text-align:center;padding:30px;">Sin turnos previos.</div>'; return; }
+                    cont.innerHTML = '<div style="max-height:420px;overflow-y:auto;">' + data.turnos.map(t => `
+                        <div style="padding:12px;border:1px solid var(--gray-light);border-radius:10px;margin:8px 0;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;">
+                                <b style="color:var(--primary);">Turno #${t.numero_turno}</b>
+                                <span style="font-size:11px;background:var(--gray-light);padding:3px 9px;border-radius:12px;color:var(--text);">${t.estado}</span>
+                            </div>
+                            <div style="font-size:12px;color:var(--gray-dark);margin-top:6px;">📅 ${t.fecha ? new Date(t.fecha).toLocaleString() : '—'}</div>
+                            ${t.notas_medico ? '<div style="margin-top:6px;font-size:13px;background:#fef9c3;padding:6px 10px;border-radius:6px;">📝 ' + t.notas_medico + '</div>' : ''}
+                        </div>`).join('') + '</div>';
+                }
+            } catch (e) {
+                cont.innerHTML = '<div style="color:#dc2626;text-align:center;padding:20px;">Error: ' + e.message + '</div>';
+            }
         }
 
         function pintarAlertaSistema(texto) {
             const win = document.getElementById('chat-window');
             win.innerHTML += `<div class="sistema-alerta">${texto}</div>`;
+            win.scrollTop = win.scrollHeight;
+        }
+        function pintarAlertaSistemaTipo(tipo, texto) {
+            const win = document.getElementById('chat-window');
+            const klass = tipo === 'conectado' ? 'sistema-conectado' : tipo === 'desconectado' ? 'sistema-desconectado' : 'sistema-alerta';
+            win.innerHTML += `<div class="${klass}">${texto}</div>`;
             win.scrollTop = win.scrollHeight;
         }
 
@@ -430,26 +534,59 @@
             }
         }
 
-        function guardarAjustes() {
+        async function guardarAjustes() {
             const passOld = document.getElementById('adj-pass-old').value;
             if (!passOld) { alert("Debes introducir tu contraseña actual por seguridad."); return; }
+            if (!myUserId) { alert("Sesión no válida. Vuelve a iniciar sesión."); return; }
 
             const file = document.getElementById('input-foto').files[0];
             const nName = document.getElementById('adj-nombre').value;
             const nPass = document.getElementById('adj-pass-new').value;
 
+            const enviarPayload = async (fotoB64) => {
+                const body = {
+                    user_id: myUserId,
+                    password: passOld,
+                    nombre: nName || null,
+                    nueva_password: nPass || null,
+                    foto_base64: fotoB64 || null,
+                };
+                try {
+                    const r = await fetch('/api/profile/photo', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body),
+                    });
+                    if (!r.ok) {
+                        const j = await r.json().catch(() => ({}));
+                        alert("Error: " + (j.detail || r.status));
+                        return;
+                    }
+                    alert("Ajustes guardados correctamente.");
+                    cerrarAjustes();
+                    if (nName) document.getElementById('nombre-profesional').innerText = nName;
+                    if (fotoB64) document.getElementById('img-perfil-medico').src = fotoB64;
+                } catch (e) { alert("Error de red: " + e.message); }
+            };
+
             if (file) {
                 const reader = new FileReader();
-                reader.onload = function(e) {
-                    socket.send(`CONFIG_UPDATE_MEDICO:${nName}:${passOld}:${nPass}:${e.target.result}`);
-                };
+                reader.onload = (e) => enviarPayload(e.target.result);
                 reader.readAsDataURL(file);
             } else {
-                socket.send(`CONFIG_UPDATE_MEDICO:${nName}:${passOld}:${nPass}:NO_IMAGE`);
+                enviarPayload(null);
             }
-            alert("Ajustes del perfil guardados.");
-            cerrarAjustes();
-            if (nName) document.getElementById('nombre-profesional').innerText = nName;
+        }
+
+        async function cargarFotoPerfilMedico() {
+            if (!myUserId) return;
+            try {
+                const r = await fetch('/api/profile/photo/' + myUserId);
+                if (!r.ok) return;
+                const u = await r.json();
+                if (u.foto_base64) document.getElementById('img-perfil-medico').src = u.foto_base64;
+                if (u.nombre_completo) document.getElementById('nombre-profesional').innerText = u.nombre_completo;
+            } catch (e) {}
         }
 
         function abrirImagenFullScreen(src) {

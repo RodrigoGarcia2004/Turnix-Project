@@ -237,6 +237,7 @@
                 document.getElementById('user-title').innerText = partes[2] || "Paciente";
                 myUserId = partes[3] ? parseInt(partes[3], 10) : null;
                 myUserName = partes[4] || partes[2] || "";
+                cargarFotoPerfilPaciente();
                 return;
             }
 
@@ -495,24 +496,52 @@
             }
         }
 
-        function guardarAjustes() {
+        async function guardarAjustes() {
             const passOld = document.getElementById('adj-pass-old').value;
             if (!passOld) { alert("Debes introducir tu contraseña actual."); return; }
+            if (!myUserId) { alert("Sesión no válida."); return; }
 
             const file = document.getElementById('input-foto').files[0];
             const nName = document.getElementById('adj-nombre').value;
             const nPass = document.getElementById('adj-pass-new').value;
 
-            if(file) {
+            const enviar = async (fotoB64) => {
+                const body = {
+                    user_id: myUserId, password: passOld,
+                    nombre: nName || null, nueva_password: nPass || null,
+                    foto_base64: fotoB64 || null,
+                };
+                try {
+                    const r = await fetch('/api/profile/photo', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body),
+                    });
+                    if (!r.ok) {
+                        const j = await r.json().catch(() => ({}));
+                        alert("Error: " + (j.detail || r.status)); return;
+                    }
+                    alert("Ajustes guardados.");
+                    cerrarAjustes();
+                    if (nName) document.getElementById('user-title').innerText = nName;
+                    if (fotoB64) document.getElementById('img-perfil-paciente').src = fotoB64;
+                } catch (e) { alert("Error: " + e.message); }
+            };
+            if (file) {
                 const reader = new FileReader();
-                reader.onload = function(e) { socket.send(`CONFIG_UPDATE_PACIENTE:${nName}:${passOld}:${nPass}:${e.target.result}`); };
+                reader.onload = (e) => enviar(e.target.result);
                 reader.readAsDataURL(file);
-            } else {
-                socket.send(`CONFIG_UPDATE_PACIENTE:${nName}:${passOld}:${nPass}:NO_IMAGE`);
-            }
-            alert("Ajustes actualizados.");
-            cerrarAjustes();
-            if(nName) document.getElementById('user-title').innerText = nName;
+            } else { enviar(null); }
+        }
+
+        async function cargarFotoPerfilPaciente() {
+            if (!myUserId) return;
+            try {
+                const r = await fetch('/api/profile/photo/' + myUserId);
+                if (!r.ok) return;
+                const u = await r.json();
+                if (u.foto_base64) document.getElementById('img-perfil-paciente').src = u.foto_base64;
+                if (u.nombre_completo) document.getElementById('user-title').innerText = u.nombre_completo;
+            } catch (e) {}
         }
 
         function mostrarAvisoLlamada() {

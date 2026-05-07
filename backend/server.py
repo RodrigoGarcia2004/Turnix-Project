@@ -10,16 +10,26 @@ import logging
 import asyncio
 import uuid
 import mimetypes
+import io
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, APIRouter, UploadFile, File, Form, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from dotenv import load_dotenv
 import asyncpg
+
+# ReportLab para generar PDFs
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import cm
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -222,6 +232,260 @@ async def docs_active():
 
 
 # ----------------------------------------------------------------------
+# Auth REST (para el portal "Historial seguro" en acceso.html)
+# ----------------------------------------------------------------------
+class LoginIn(BaseModel):
+    usuario: str
+    password: str
+
+
+@api.post("/auth/login")
+async def auth_login(body: LoginIn):
+    """Login REST para el portal del paciente (PDF historial). Solo PACIENTE."""
+    async with app.state.pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT id, nombre, usuario, rol::text AS rol, email, nombre_completo,
+                      foto_base64
+                 FROM usuarios WHERE usuario=$1 AND password=$2""",
+            body.usuario, body.password,
+        )
+    if not row:
+        raise HTTPException(status_code=401, detail="Credenciales no validas")
+    if row["rol"] != "PACIENTE":
+        raise HTTPException(status_code=403, detail="Acceso solo para pacientes")
+    return {
+        "id": row["id"], "usuario": row["usuario"], "rol": row["rol"],
+        "nombre": row["nombre"], "nombre_completo": row["nombre_completo"],
+        "email": row["email"], "foto_base64": row["foto_base64"],
+    }
+
+
+# ----------------------------------------------------------------------
+# Foto de perfil persistente en `usuarios.foto_base64`
+# ----------------------------------------------------------------------
+class PhotoIn(BaseModel):
+    user_id: int
+    password: str
+    foto_base64: Optional[str] = None
+    nombre: Optional[str] = None
+    nueva_password: Optional[str] = None
+
+
+@api.post("/profile/photo")
+async def save_profile(body: PhotoIn):
+    """Guarda foto y/o nombre/password del usuario. Requiere su password actual."""
+    async with app.state.pool.acquire() as conn:
+        actual = await conn.fetchval(
+            "SELECT password FROM usuarios WHERE id=$1", body.user_id
+        )
+        if actual is None:
+            raise HTTPException(404, "Usuario no encontrado")
+        if actual != body.password:
+            raise HTTPException(401, "Password actual incorrecta")
+        sets = []
+        params: List[Any] = []
+        i = 1
+        if body.foto_base64 is not None:
+            sets.append(f"foto_base64=${i}"); params.append(body.foto_base64); i += 1
+        if body.nombre:
+            sets.append(f"nombre_completo=${i}"); params.append(body.nombre); i += 1
+        if body.nueva_password:
+            sets.append(f"password=${i}"); params.append(body.nueva_password); i += 1
+        if not sets:
+            return {"ok": True, "changed": 0}
+        params.append(body.user_id)
+        sql = f"UPDATE usuarios SET {', '.join(sets)} WHERE id=${i}"
+        await conn.execute(sql, *params)
+    return {"ok": True, "changed": len(sets)}
+
+
+@api.get("/profile/photo/{user_id}")
+async def get_profile(user_id: int):
+    async with app.state.pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT id, usuario, nombre, nombre_completo, email, foto_base64,
+                      especialidad, rol::text AS rol
+                 FROM usuarios WHERE id=$1""", user_id,
+        )
+    if not row:
+        raise HTTPException(404, "Usuario no encontrado")
+    return dict(row)
+
+
+# ----------------------------------------------------------------------
+# Historial: turnos del paciente, chat de la consulta activa, historial completo
+# ----------------------------------------------------------------------
+@api.get("/historial/turnos/{user_id}")
+async def historial_turnos(user_id: int):
+    """Lista turnos del paciente (mas recientes primero)."""
+    async with app.state.pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT t.id, t.numero_turno, t.cliente, t.estado::text AS estado,
+                      t.fecha, t.fecha_inicio_consulta, t.fecha_fin_consulta,
+                      t.notas_medico, t.atendido_por,
+                      m.nombre_completo AS medico_nombre,
+                      m.usuario AS medico_usuario,
+                      m.especialidad AS medico_especialidad
+                 FROM turnos t
+                 LEFT JOIN usuarios m ON m.id = t.atendido_por
+                WHERE t.id_paciente=$1
+                ORDER BY t.fecha DESC NULLS LAST, t.id DESC""",
+            user_id,
+        )
+    return [dict(r) for r in rows]
+
+
+@api.get("/historial/chat/activa")
+async def historial_chat_activa():
+    """Mensajes del turno activo (EN_ESPERA o EN_CONSULTA mas antiguo)."""
+    async with app.state.pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT m.id, m.contenido, m.fecha_envio, m.emisor_id,
+                      u.usuario AS emisor_usuario, u.rol::text AS emisor_rol,
+                      u.nombre_completo AS emisor_nombre
+                 FROM mensajes m
+                 LEFT JOIN usuarios u ON u.id = m.emisor_id
+                WHERE m.id_turno = (SELECT id FROM turnos
+                                     WHERE estado IN ('EN_ESPERA','EN_CONSULTA')
+                                     ORDER BY id ASC LIMIT 1)
+                ORDER BY m.fecha_envio ASC"""
+        )
+    return [dict(r) for r in rows]
+
+
+@api.get("/historial/paciente/{usuario}")
+async def historial_paciente(usuario: str):
+    """Para el medico: historial completo de un paciente (turnos, mensajes, docs)."""
+    async with app.state.pool.acquire() as conn:
+        u = await conn.fetchrow(
+            "SELECT id, usuario, nombre_completo FROM usuarios WHERE usuario=$1",
+            usuario,
+        )
+        if not u:
+            return {"usuario": usuario, "turnos": [], "mensajes": [], "documentos": []}
+        turnos = await conn.fetch(
+            """SELECT id, numero_turno, estado::text AS estado, fecha,
+                      fecha_inicio_consulta, fecha_fin_consulta, notas_medico
+                 FROM turnos WHERE id_paciente=$1
+                 ORDER BY id DESC LIMIT 30""", u["id"]
+        )
+        mensajes = await conn.fetch(
+            """SELECT m.id, m.id_turno, m.contenido, m.fecha_envio,
+                      us.usuario AS emisor_usuario, us.rol::text AS emisor_rol
+                 FROM mensajes m LEFT JOIN usuarios us ON us.id=m.emisor_id
+                 JOIN turnos t ON t.id=m.id_turno
+                 WHERE t.id_paciente=$1
+                 ORDER BY m.fecha_envio DESC LIMIT 200""", u["id"]
+        )
+        docs = await conn.fetch(
+            """SELECT d.id, d.id_turno, d.nombre_archivo, d.ruta_archivo, d.tipo_mime, d.subido_en
+                 FROM documentos d
+                 JOIN turnos t ON t.id=d.id_turno
+                WHERE t.id_paciente=$1
+                ORDER BY d.subido_en DESC LIMIT 100""", u["id"]
+        )
+    return {
+        "usuario": dict(u),
+        "turnos": [dict(r) for r in turnos],
+        "mensajes": [dict(r) for r in mensajes],
+        "documentos": [dict(r) for r in docs],
+    }
+
+
+# ----------------------------------------------------------------------
+# Justificante PDF de un turno
+# ----------------------------------------------------------------------
+@api.get("/justificante/{turno_id}")
+async def justificante_pdf(turno_id: int, user_id: int):
+    """Genera un PDF justificante. Solo el dueno del turno puede descargarlo."""
+    async with app.state.pool.acquire() as conn:
+        turno = await conn.fetchrow(
+            """SELECT t.id, t.numero_turno, t.cliente, t.estado::text AS estado,
+                      t.fecha, t.fecha_inicio_consulta, t.fecha_fin_consulta,
+                      t.notas_medico, t.id_paciente,
+                      p.nombre_completo AS paciente_nombre, p.usuario AS paciente_usuario,
+                      p.email AS paciente_email,
+                      m.nombre_completo AS medico_nombre, m.usuario AS medico_usuario,
+                      m.especialidad AS medico_especialidad
+                 FROM turnos t
+                 LEFT JOIN usuarios p ON p.id=t.id_paciente
+                 LEFT JOIN usuarios m ON m.id=t.atendido_por
+                WHERE t.id=$1""", turno_id,
+        )
+    if not turno:
+        raise HTTPException(404, "Turno no encontrado")
+    if turno["id_paciente"] != user_id:
+        raise HTTPException(403, "Este justificante no pertenece a tu cuenta")
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=2*cm, rightMargin=2*cm,
+                            topMargin=2*cm, bottomMargin=2*cm)
+    styles = getSampleStyleSheet()
+    h1 = ParagraphStyle("h1", parent=styles["Heading1"], textColor=colors.HexColor("#1E88E5"),
+                        alignment=1, fontSize=22, spaceAfter=6)
+    sub = ParagraphStyle("sub", parent=styles["Normal"], alignment=1, textColor=colors.grey,
+                         fontSize=10, spaceAfter=18)
+    story: List[Any] = []
+    story.append(Paragraph("🏥 TURNIX SALUD", h1))
+    story.append(Paragraph("Justificante oficial de consulta médica", sub))
+
+    def fmt(dt):
+        if not dt: return "—"
+        if isinstance(dt, str): return dt
+        return dt.strftime("%d/%m/%Y %H:%M")
+
+    data = [
+        ["Número de turno", f"#{turno['numero_turno']}"],
+        ["Paciente", turno["paciente_nombre"] or turno["paciente_usuario"] or turno["cliente"]],
+        ["Usuario", turno["paciente_usuario"] or "—"],
+        ["Email", turno["paciente_email"] or "—"],
+        ["Fecha de solicitud", fmt(turno["fecha"])],
+        ["Inicio de consulta", fmt(turno["fecha_inicio_consulta"])],
+        ["Fin de consulta", fmt(turno["fecha_fin_consulta"])],
+        ["Estado", turno["estado"]],
+        ["Médico", turno["medico_nombre"] or turno["medico_usuario"] or "Sin asignar"],
+        ["Especialidad", turno["medico_especialidad"] or "—"],
+    ]
+    t = Table(data, colWidths=[5.5*cm, 10.5*cm])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#E0F2F1")),
+        ("TEXTCOLOR", (0,0), (0,-1), colors.HexColor("#0F4C5C")),
+        ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
+        ("FONTNAME", (1,0), (1,-1), "Helvetica"),
+        ("FONTSIZE", (0,0), (-1,-1), 10),
+        ("ROWBACKGROUNDS", (1,0), (1,-1), [colors.white, colors.HexColor("#F8FAFB")]),
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+        ("LINEBELOW", (0,0), (-1,-1), 0.3, colors.lightgrey),
+        ("LEFTPADDING", (0,0), (-1,-1), 8),
+        ("RIGHTPADDING", (0,0), (-1,-1), 8),
+        ("TOPPADDING", (0,0), (-1,-1), 8),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 8),
+    ]))
+    story.append(t)
+
+    if turno["notas_medico"]:
+        story.append(Spacer(1, 18))
+        story.append(Paragraph("<b>Observaciones del médico</b>", styles["Heading3"]))
+        story.append(Paragraph(turno["notas_medico"], styles["BodyText"]))
+
+    story.append(Spacer(1, 30))
+    pie = ParagraphStyle("pie", parent=styles["Normal"], textColor=colors.grey,
+                         fontSize=8, alignment=1)
+    story.append(Paragraph(
+        f"Documento generado automáticamente el {datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')}<br/>"
+        f"Sistema Turnix Salud · Verificación: TURNIX-{turno['id']:08d}", pie))
+
+    doc.build(story)
+    buf.seek(0)
+    return StreamingResponse(
+        buf, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="justificante_turno_{turno["numero_turno"]}.pdf"'},
+    )
+
+
+
+
+# ----------------------------------------------------------------------
 # WebSocket - protocolo replicado del ServidorWeb.java
 # ----------------------------------------------------------------------
 @api.websocket("/ws")
@@ -239,6 +503,14 @@ async def websocket_endpoint(ws: WebSocket):
     except Exception as e:
         log.exception("Error en WS: %s", e)
     finally:
+        # Avisar a los medicos si el que se va era paciente
+        u_out = get_user(ws)
+        if u_out and u_out.get("rol") == "PACIENTE":
+            disp = display_name(u_out)
+            for c in all_clients:
+                u2 = get_user(c)
+                if u2 and u2["rol"] in ("MEDICO", "ADMIN"):
+                    await safe_send(c, f"SISTEMA_PACIENTE_DESCONECTADO:{u_out['usuario']}:{disp}")
         if ws in cola_espera:
             cola_espera.remove(ws)
         if ws in all_clients:
@@ -277,6 +549,12 @@ async def handle_message(ws: WebSocket, message: str):
                     if total > 0:
                         media = round(float(user["suma"]) / total * 10.0) / 10.0
                     await safe_send(ws, f"VALORACION_ACTUALIZADA:{media}:{total}")
+                # Broadcast a medicos: paciente conectado
+                if user["rol"] == "PACIENTE":
+                    for c in all_clients:
+                        u2 = get_user(c)
+                        if u2 and u2["rol"] in ("MEDICO", "ADMIN"):
+                            await safe_send(c, f"SISTEMA_PACIENTE_CONECTADO:{user['usuario']}:{nombre}")
             else:
                 await safe_send(ws, "ERROR: Usuario o clave incorrectos")
         except Exception as e:
@@ -525,6 +803,13 @@ async def handle_message(ws: WebSocket, message: str):
         return
 
     if message == "CONFIRMAR_ASISTENCIA":
+        u = get_user(ws)
+        if u and u["rol"] == "PACIENTE":
+            disp = display_name(u)
+            for c in all_clients:
+                u2 = get_user(c)
+                if u2 and u2["rol"] in ("MEDICO", "ADMIN"):
+                    await safe_send(c, f"SISTEMA_PACIENTE_ACEPTO:{u['usuario']}:{disp}")
         return
 
     # ==================== WEBRTC SIGNALING ====================
