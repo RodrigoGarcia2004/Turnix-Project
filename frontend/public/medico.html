@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Panel Médico - Turnix</title>
+    <style>
+        :root {
+            --primary: #3498db; --primary-hover: #2980b9; --secondary: #2ecc71;
+            --bg: #f0f4f8; --text: #2c3e50; --white: #ffffff; --gray-light: #e2e8f0;
+            --gray-dark: #64748b; --accent: #e67e22;
+        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: var(--bg); padding: 20px; color: var(--text); margin: 0; }
+        .dashboard { display: grid; grid-template-columns: 1fr 2fr; gap: 25px; max-width: 1100px; margin: 20px auto; animation: fadeInUp 0.6s ease-out; }
+        .btn-volver { position: absolute; top: 20px; left: 20px; display: flex; align-items: center; gap: 8px; color: var(--gray-dark); text-decoration: none; font-weight: 600; font-size: 14px; transition: color 0.3s ease; }
+        .btn-volver:hover { color: var(--primary); }
+        .card { background: var(--white); padding: 30px; border-radius: 18px; box-shadow: 0 8px 25px rgba(0, 0, 0, 0.08); transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); animation: fadeInUp 0.5s ease-out; }
+        .card:hover { transform: translateY(-8px); box-shadow: 0 15px 35px rgba(0, 0, 0, 0.12); }
+        h2 { color: var(--text); border-bottom: 3px solid var(--primary); padding-bottom: 12px; margin-top: 0; font-weight: 600; }
+        .header-perfil { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--gray-light); padding-bottom: 15px; margin-bottom: 20px; }
+        .perfil-info { display: flex; align-items: center; gap: 15px; }
+        .perfil-img { width: 60px; height: 60px; border-radius: 50%; object-fit: cover; border: 2px solid var(--primary); transition: transform 0.3s ease; }
+        .perfil-img:hover { transform: scale(1.1); }
+        .gear-btn { font-size: 24px; cursor: pointer; transition: transform 0.4s ease; background: none; box-shadow: none; width: auto; padding: 0; color: var(--gray-dark); border: none; }
+        .gear-btn:hover { transform: rotate(90deg); color: var(--primary); }
+        input[type="text"], input[type="password"], input[type="file"] { width: 100%; box-sizing: border-box; padding: 12px 15px; margin-bottom: 15px; border-radius: 10px; border: 1px solid var(--gray-light); font-size: 15px; transition: all 0.3s ease; }
+        input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.15); transform: translateY(-1px); }
+        .form-group label { display: block; font-size: 13px; font-weight: 700; margin-bottom: 6px; color: var(--text); }
+        .turno-item { background: #f8fbfe; margin: 12px 0; padding: 15px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; border-left: 5px solid var(--primary); box-shadow: 0 3px 10px rgba(0,0,0,0.06); transition: all 0.3s ease; }
+        .turno-item:hover { transform: translateX(8px); box-shadow: 0 6px 15px rgba(52, 152, 219, 0.15); }
+        button { background: var(--secondary); color: white; border: none; padding: 13px 22px; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 15px; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(46, 204, 113, 0.2); }
+        button:hover { filter: brightness(1.08); transform: translateY(-2px); box-shadow: 0 6px 16px rgba(46, 204, 113, 0.3); }
+        button:active { transform: scale(0.96); }
+        button.atender { background: var(--primary); }
+        button.llamar { background: var(--accent); width: 100%; }
+        button.danger { background: #e74c3c; }
+        #log-actividad { font-size: 13px; color: #7f8c8d; height: 130px; overflow-y: auto; background: #fdfdfd; padding: 14px; border: 1px solid var(--gray-light); border-radius: 10px; }
+        .chat-container { border-top: 2px solid #f1f1f1; margin-top: 20px; padding-top: 20px; display: none; animation: fadeIn 0.5s ease-out; }
+        #chat-window { height: 300px; overflow-y: auto; background: #f8fafc; border: 1px solid var(--gray-light); padding: 15px; margin-bottom: 15px; border-radius: 14px; display: flex; flex-direction: column; gap: 10px; }
+        .bubble { max-width: 80%; padding: 12px 16px; border-radius: 16px; font-size: 14px; line-height: 1.4; position: relative; box-shadow: 0 2px 8px rgba(0,0,0,0.08); word-break: break-word; animation: bubblePop 0.3s ease-out; }
+        @keyframes bubblePop { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .msg-paciente { background: #e1effe; align-self: flex-start; color: #1e3a8a; }
+        .msg-medico { background: #dcf8c6; align-self: flex-end; color: #166534; }
+        .timestamp { font-size: 10px; color: rgba(0,0,0,0.5); margin-top: 6px; display: block; text-align: right; }
+        .sistema-alerta { align-self: center; background: #fff3cd; color: #856404; font-weight: bold; border-radius: 20px; padding: 6px 16px; font-size: 12px; margin: 5px 0; }
+        .chat-input-group { display: flex; gap: 10px; align-items: center; }
+        .btn-adjunto { background: var(--gray-light); color: var(--text); padding: 12px; display: flex; align-items: center; justify-content: center; font-size: 18px; width: 45px; height: 45px; border-radius: 10px; flex-shrink: 0; transition: all 0.3s ease; }
+        .btn-adjunto:hover { background: var(--gray-dark); color: white; transform: scale(1.1); }
+        #login-medico { max-width: 420px; margin: 80px auto; text-align: center; animation: fadeInUp 0.7s ease-out; }
+        .forgot-pass { display: block; text-align: right; font-size: 13px; color: var(--primary); text-decoration: none; margin: -5px 0 20px 0; font-weight: 500; }
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(6px); z-index: 1000; justify-content: center; align-items: center; animation: fadeIn 0.3s ease-out; }
+        .modal-content { background: white; padding: 32px; border-radius: 18px; width: 90%; max-width: 420px; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25); text-align: left; position: relative; animation: modalPop 0.4s ease-out; }
+        @keyframes modalPop { from { transform: scale(0.9) translateY(20px); opacity: 0; } to { transform: scale(1) translateY(0); opacity: 1; } }
+        .close-modal { position: absolute; top: 18px; right: 22px; font-size: 22px; cursor: pointer; color: var(--gray-dark); transition: color 0.2s; }
+        .close-modal:hover { color: #e74c3c; }
+        #video-wrapper-medico { position: fixed; bottom: 20px; right: 20px; background: black; border-radius: 18px; overflow: hidden; box-shadow: 0 15px 35px rgba(0,0,0,0.5); z-index: 1000; border: 3px solid var(--primary); display: none; flex-direction: column; animation: fadeInUp 0.4s ease-out; }
+        #local-video-medico { width: 300px; height: 225px; object-fit: cover; }
+        .video-controls { background: #222; padding: 12px; display: flex; justify-content: center; gap: 12px; }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+<body>
+
+    <a href="acceso.html" class="btn-volver">← Volver al inicio</a>
+
+    <!-- LOGIN -->
+    <div id="login-medico" class="card">
+        <h1 style="color:var(--primary); margin-bottom: 10px;">🏥 Turnix Pro</h1>
+        <h2 style="border:none; margin-bottom: 20px;">🔑 Acceso Médico</h2>
+        <input type="text" id="user-med" placeholder="Usuario Médico" value="medico1">
+        <input type="password" id="pass-med" placeholder="Contraseña" value="1234">
+        <a href="#" class="forgot-pass" onclick="mostrarModalPass()">¿Has olvidado tu contraseña?</a>
+        <button onclick="loginMedico()" style="width: 100%; font-size: 16px; padding: 15px;">Entrar al Panel</button>
+    </div>
+
+    <!-- MODAL RECUPERAR CONTRASEÑA -->
+    <div id="modal-pass" class="modal-overlay">
+        <div class="modal-content">
+            <h3>🔒 Recuperar Contraseña</h3>
+            <p>Introduce tu nombre de usuario o correo electrónico corporativo.</p>
+            <input type="text" id="input-recuperar" placeholder="Ej: dr.garcia@clinica.com">
+            <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 15px;">
+                <button class="btn-modal-cancel" onclick="cerrarModalPass()">Cancelar</button>
+                <button style="background: var(--primary);" onclick="enviarRecuperacion()">Enviar solicitud</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL AJUSTES -->
+    <div id="modal-ajustes" class="modal-overlay">
+        <div class="modal-content">
+            <span class="close-modal" onclick="cerrarAjustes()">✕</span>
+            <h3 style="color: var(--primary);">⚙️ Ajustes del Profesional</h3>
+            <div class="form-group">
+                <label>Foto de Perfil</label>
+                <input type="file" id="input-foto" accept="image/*" onchange="previewImagenMedico(this)">
+            </div>
+            <div class="form-group">
+                <label>Nombre a mostrar (Ej: Dr. García)</label>
+                <input type="text" id="adj-nombre" placeholder="Nuevo nombre...">
+            </div>
+            <div style="border-top: 1px solid var(--gray-light); margin: 15px 0; padding-top: 15px;">
+                <div class="form-group">
+                    <label>Contraseña Actual (Requerida)</label>
+                    <input type="password" id="adj-pass-old">
+                </div>
+                <div class="form-group">
+                    <label>Nueva Contraseña (Opcional)</label>
+                    <input type="password" id="adj-pass-new">
+                </div>
+            </div>
+            <button style="width: 100%; background: var(--secondary);" onclick="guardarAjustes()">Guardar Cambios</button>
+        </div>
+    </div>
+
+    <!-- MODAL VISOR IMAGEN -->
+    <div id="modal-visor-imagen" class="modal-overlay" onclick="cerrarVisorImagen()" style="z-index: 2000; cursor: zoom-out;">
+        <span class="close-modal" style="color: white; right: 30px; top: 20px; font-size: 30px; text-shadow: 0 0 10px black;">✕</span>
+        <img id="img-fullscreen" src="" style="max-width: 90%; max-height: 90%; border-radius: 8px; box-shadow: 0 0 30px rgba(0,0,0,0.8);">
+    </div>
+
+    <!-- DASHBOARD -->
+    <div id="dashboard-medico" class="dashboard" style="display:none;">
+        <div class="card">
+            <div class="header-perfil">
+                <div class="perfil-info">
+                    <img src="https://via.placeholder.com/60" id="img-perfil-medico" class="perfil-img">
+                    <div>
+                        <h2 id="nombre-profesional" style="margin: 0; border: none; padding: 0;">Dr. De Guardia</h2>
+                        <span style="font-size: 12px; color: var(--secondary);">🟢 Online</span>
+                    </div>
+                </div>
+                <button class="gear-btn" onclick="abrirAjustes()">⚙️</button>
+            </div>
+            <div id="reputacion-medico" style="background: #f8fafc; padding: 18px; border-radius: 12px; margin: 15px 0; border: 1px solid var(--gray-light); text-align: center;">
+                <span style="font-size: 26px;">⭐ <strong id="media-estrellas">0.0</strong></span><br>
+                <small style="color: var(--gray-dark); font-weight: 500;">(<span id="total-votos">0</span> valoraciones)</small>
+            </div>
+            <div style="background: #ecfdf5; padding: 14px; border-radius: 10px; margin-bottom: 15px; border: 1px solid #d1fae5;">
+                <p style="margin:0; font-size: 14px;">Estado: <span style="color: #059669; font-weight: bold;">● Conectado</span></p>
+            </div>
+            <div id="log-actividad">Esperando actividad...</div>
+            <hr style="border: 0; border-top: 1px solid var(--gray-light); margin: 22px 0;">
+            <button onclick="verMisValoraciones()" style="background: #f39c12; width: 100%; margin-bottom: 12px;">⭐ Ver Mis Valoraciones</button>
+            <button class="llamar" onclick="llamarSiguiente()">🔔 Llamar Siguiente Turno</button>
+        </div>
+
+        <div class="card">
+            <h2>⏳ Pacientes en Espera</h2>
+            <div id="lista-turnos"></div>
+            <div id="panel-chat" class="chat-container">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--gray-light); padding-bottom: 15px; gap: 10px;">
+                    <h3 style="margin:0;">💬 Consulta Activa: <span id="nombre-paciente-chat" style="color: var(--primary);">...</span></h3>
+                    <div style="display: flex; gap: 8px;">
+                        <button onclick="iniciarVideoMedico()" style="background: #9b59b6; padding: 9px 14px; font-size: 13px;">📹 Cámara</button>
+                        <button onclick="cerrarChat()" style="background: var(--gray-dark); padding: 9px 14px; font-size: 13px;">Terminar Consulta</button>
+                    </div>
+                </div>
+                <div id="chat-window"></div>
+                <div class="chat-input-group">
+                    <button class="btn-adjunto" onclick="document.getElementById('input-imagen-chat').click()">📎</button>
+                    <input type="file" id="input-imagen-chat" accept="image/*" style="display: none;" onchange="enviarImagenChat(this)">
+                    <input type="text" id="mensaje-medico" placeholder="Escribe un mensaje..." onkeypress="checkEnter(event)" style="margin-bottom: 0;">
+                    <button onclick="enviarMensaje()" style="background: var(--primary);">Enviar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="video-wrapper-medico">
+        <video id="local-video-medico" autoplay muted playsinline></video>
+        <div class="video-controls">
+            <span style="color:white; font-size: 12px; font-weight: bold; align-self: center;">🎥 Transmitiendo</span>
+            <button class="danger" onclick="detenerVideoMedico()" style="padding: 5px 15px; font-size: 12px;">Colgar</button>
+        </div>
+    </div>
+
+    <script>
+        const WS_PROTO = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const WS_URL = `${WS_PROTO}//${window.location.host}/api/ws`;
+        const socket = new WebSocket(WS_URL);
+        let pacienteActual = "";
+        let streamMedico = null;
+
+        socket.onopen = () => console.log("✅ Conectado al servidor Java");
+
+        socket.onmessage = (event) => {
+            const data = event.data;
+            console.log("📥 Mensaje:", data);
+
+            if (data.startsWith("VALORACION_ACTUALIZADA:")) {
+                const partes = data.split(":");
+                document.getElementById('media-estrellas').innerText = partes[1];
+                document.getElementById('total-votos').innerText = partes[2];
+                addLog("⭐ ¡Nueva valoración recibida!");
+                return;
+            }
+
+            if (data.startsWith("LOGIN_OK:MEDICO") || data.startsWith("LOGIN_OK:ADMIN")) {
+                const partes = data.split(":");
+                if(partes.length > 2) document.getElementById('nombre-profesional').innerText = partes[2];
+                document.getElementById('login-medico').style.display = 'none';
+                document.querySelector('.btn-volver').style.display = 'none';
+                document.getElementById('dashboard-medico').style.display = 'grid';
+                addLog("✅ Sesión iniciada correctamente.");
+                return;
+            }
+
+            if (data.startsWith("TURNO_ASIGNADO")) {
+                const info = data.replace("TURNO_ASIGNADO: ", "");
+                const nombre = info.split(" (")[0];
+                const lista = document.getElementById('lista-turnos');
+                lista.innerHTML += `
+                    <div class="turno-item" id="turno-${nombre}">
+                        <span><i style="color:var(--primary)">🎫</i> <b>${info}</b></span>
+                        <button class="atender" onclick="abrirChat('${nombre}')">Atender</button>
+                    </div>`;
+                addLog("📢 Nuevo turno: " + nombre);
+                return;
+            }
+
+			if (data.startsWith("COMANDO:ABRIR_CHAT:")) {
+			    const nombre = data.split(":")[2];
+			    abrirChat(nombre, true);   // true = viene del servidor, no envía INICIAR_CONSULTA_MANUAL otra vez
+			    return;
+			}
+
+            if (data.startsWith("CHAT_DE_PACIENTE:")) {
+                pintarMensaje("paciente", data.substring("CHAT_DE_PACIENTE:".length));
+                return;
+            }
+
+            if (data === "NOTIFICAR_VIDEO_PACIENTE") {
+                pintarAlertaSistema("📹 El paciente ha encendido su cámara.");
+                return;
+            }
+
+            if (data.startsWith("SISTEMA:")) {
+                addLog(data.replace("SISTEMA:", "📢 "));
+                return;
+            }
+        };
+
+        function loginMedico() {
+            const u = document.getElementById('user-med').value;
+            const p = document.getElementById('pass-med').value;
+            if(u && p) socket.send(`login:${u}:${p}`);
+        }
+
+        function abrirChat(nombre, desdeServidor = false) {
+            pacienteActual = nombre;
+            document.getElementById('nombre-paciente-chat').innerText = nombre;
+            document.getElementById('panel-chat').style.display = 'block';
+            const win = document.getElementById('chat-window');
+            win.innerHTML = '';
+            pintarAlertaSistema(`🔒 Conexión segura con ${nombre}`);
+            const item = document.getElementById(`turno-${nombre}`);
+            if (item) item.remove();
+            if (!desdeServidor) socket.send("INICIAR_CONSULTA_MANUAL:" + nombre);
+            addLog("📋 Atendiendo a: " + nombre);
+            document.getElementById('mensaje-medico').focus();
+        }
+
+        function enviarMensaje() {
+            const input = document.getElementById('mensaje-medico');
+            const msg = input.value.trim();
+            if (msg && pacienteActual) {
+                socket.send("CHAT_PRIVADO:" + pacienteActual + ":" + msg);
+                pintarMensaje("medico", msg);
+                input.value = "";
+            }
+        }
+
+        function enviarImagenChat(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const base64Img = e.target.result;
+                    if (pacienteActual) {
+                        socket.send("CHAT_PRIVADO:" + pacienteActual + ":" + base64Img);
+                        pintarMensaje("medico", base64Img);
+                    }
+                };
+                reader.readAsDataURL(input.files[0]);
+                input.value = "";
+            }
+        }
+
+        function pintarMensaje(tipo, texto) {
+            const win = document.getElementById('chat-window');
+            const hora = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const clase = tipo === "paciente" ? "msg-paciente" : "msg-medico";
+            const autor = tipo === "paciente" ? "Paciente" : "Tú";
+            let contenido = texto;
+            if (texto.startsWith("data:image")) {
+                contenido = `<img src="${texto}" onclick="abrirImagenFullScreen(this.src)" style="max-width:100%; border-radius:8px; cursor:zoom-in;">`;
+            }
+            win.innerHTML += `<div class="bubble ${clase}"><b>${autor}:</b> <br> ${contenido}<span class="timestamp">${hora}</span></div>`;
+            win.scrollTop = win.scrollHeight;
+        }
+
+        function pintarAlertaSistema(texto) {
+            const win = document.getElementById('chat-window');
+            win.innerHTML += `<div class="sistema-alerta">${texto}</div>`;
+            win.scrollTop = win.scrollHeight;
+        }
+
+        function checkEnter(e) { if (e.key === 'Enter') enviarMensaje(); }
+
+        function addLog(msg) {
+            const log = document.getElementById('log-actividad');
+            log.innerHTML += `<div style="margin-bottom: 5px;">[${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}] ${msg}</div>`;
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function llamarSiguiente() { socket.send("LLAMAR_SIGUIENTE"); }
+
+        function cerrarChat() {
+            if (pacienteActual) {
+                socket.send("FINALIZAR_CONSULTA:" + pacienteActual);
+                addLog("🛑 Consulta finalizada con: " + pacienteActual);
+                document.getElementById('panel-chat').style.display = 'none';
+                detenerVideoMedico();
+                pacienteActual = "";
+            } else {
+                alert("No hay consulta activa.");
+            }
+        }
+
+        function verMisValoraciones() {
+            const media = document.getElementById('media-estrellas').innerText;
+            const total = document.getElementById('total-votos').innerText;
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.style.display = 'flex';
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 420px; text-align: center;">
+                    <span class="close-modal" onclick="this.closest('.modal-overlay').remove()">✕</span>
+                    <h3 style="color: #f39c12; margin-bottom: 20px;">⭐ Mis Valoraciones</h3>
+                    <div style="font-size: 52px; margin: 25px 0;">${media} <span style="font-size: 30px;">⭐</span></div>
+                    <p style="font-size: 19px; margin: 10px 0;"><strong>${total}</strong> valoraciones de pacientes</p>
+                    <div style="background: #f8fafc; padding: 16px; border-radius: 12px; margin: 20px 0; text-align: left;">
+                        <p style="margin: 6px 0; font-size: 14px;"><strong>Última valoración:</strong> Hoy</p>
+                        <p style="margin: 6px 0; font-size: 14px;"><strong>Promedio general:</strong> ${media} estrellas</p>
+                    </div>
+                    <button onclick="this.closest('.modal-overlay').remove()" style="background: var(--secondary); width: 100%;">Cerrar</button>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+
+        function previewImagenMedico(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById('img-perfil-medico').src = e.target.result;
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        function guardarAjustes() {
+            const passOld = document.getElementById('adj-pass-old').value;
+            if (!passOld) { alert("Debes introducir tu contraseña actual por seguridad."); return; }
+
+            const file = document.getElementById('input-foto').files[0];
+            const nName = document.getElementById('adj-nombre').value;
+            const nPass = document.getElementById('adj-pass-new').value;
+
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    socket.send(`CONFIG_UPDATE_MEDICO:${nName}:${passOld}:${nPass}:${e.target.result}`);
+                };
+                reader.readAsDataURL(file);
+            } else {
+                socket.send(`CONFIG_UPDATE_MEDICO:${nName}:${passOld}:${nPass}:NO_IMAGE`);
+            }
+            alert("Ajustes del perfil guardados.");
+            cerrarAjustes();
+            if (nName) document.getElementById('nombre-profesional').innerText = nName;
+        }
+
+        function abrirImagenFullScreen(src) {
+            document.getElementById('img-fullscreen').src = src;
+            document.getElementById('modal-visor-imagen').style.display = 'flex';
+        }
+
+        function cerrarVisorImagen() {
+            document.getElementById('modal-visor-imagen').style.display = 'none';
+            document.getElementById('img-fullscreen').src = '';
+        }
+
+        async function iniciarVideoMedico() {
+            try {
+                streamMedico = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                document.getElementById('local-video-medico').srcObject = streamMedico;
+                document.getElementById('video-wrapper-medico').style.display = 'flex';
+                socket.send("VIDEO_LLAMADA_INICIADA");
+                pintarAlertaSistema("🎥 Has iniciado la transmisión de vídeo.");
+            } catch (err) {
+                alert("Error al iniciar cámara. Revisa los permisos de tu navegador.");
+            }
+        }
+
+        function detenerVideoMedico() {
+            if (streamMedico) {
+                streamMedico.getTracks().forEach(track => track.stop());
+                streamMedico = null;
+            }
+            document.getElementById('video-wrapper-medico').style.display = 'none';
+        }
+
+        function mostrarModalPass() {
+            document.getElementById('modal-pass').style.display = 'flex';
+        }
+
+        function cerrarModalPass() {
+            document.getElementById('modal-pass').style.display = 'none';
+        }
+
+        function enviarRecuperacion() {
+            const input = document.getElementById('input-recuperar').value.trim();
+            if (input === "") {
+                alert("Por favor, introduce tu usuario o correo.");
+                return;
+            }
+            alert("✅ Se han enviado las instrucciones a: " + input);
+            cerrarModalPass();
+        }
+
+        function abrirAjustes() {
+            document.getElementById('modal-ajustes').style.display = 'flex';
+        }
+
+        function cerrarAjustes() {
+            document.getElementById('modal-ajustes').style.display = 'none';
+        }
+    </script>
+</body>
+</html>
