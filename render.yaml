@@ -1,0 +1,42 @@
+# Render Blueprint para Turnix
+# Despliega backend (FastAPI) + frontend (HTML estatico) en un solo servicio.
+# Una vez subido a GitHub, en Render: New + -> Blueprint -> selecciona el repo.
+
+services:
+  - type: web
+    name: turnix
+    runtime: python
+    plan: free
+    region: frankfurt
+    branch: main
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && uvicorn server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      # ====== Supabase Postgres (Session Pooler IPv4) ======
+      # Sacalos de Supabase Dashboard -> Connect -> Session pooler
+      - key: SUPABASE_HOST
+        value: aws-1-eu-west-3.pooler.supabase.com
+      - key: SUPABASE_PORT
+        value: "5432"
+      - key: SUPABASE_DB
+        value: postgres
+      - key: SUPABASE_USER
+        value: postgres.iqauuxgrnnjxironpyje
+      - key: SUPABASE_PASSWORD
+        sync: false                  # ponla a mano en el dashboard de Render
+      # ====== App ======
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: UPLOADS_DIR
+        value: /tmp/turnix_uploads   # filesystem efimero en free tier (ver README)
+      - key: FRONTEND_DIR
+        value: /opt/render/project/src/frontend/public
+      # ====== Variables protegidas por la plataforma Emergent (no se usan en Render) ======
+      - key: MONGO_URL
+        value: mongodb://localhost:27017
+      - key: DB_NAME
+        value: turnix_db

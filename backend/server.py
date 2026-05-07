@@ -16,12 +16,19 @@ from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, APIRouter, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import asyncpg
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
+
+# Carpeta del frontend estatico (paciente.html, medico.html, index.html...)
+FRONTEND_DIR = Path(os.environ.get(
+    "FRONTEND_DIR",
+    str(ROOT_DIR.parent / "frontend" / "public")
+))
 
 UPLOADS_DIR = Path(os.environ.get("UPLOADS_DIR", "/app/uploads"))
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
@@ -551,3 +558,11 @@ async def handle_message(ws: WebSocket, message: str):
 
 
 app.include_router(api)
+
+# Montaje del frontend estatico (paciente.html, medico.html, etc).
+# IMPORTANTE: va al final, despues del router /api, para no robar /api/*.
+if FRONTEND_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
+    log.info("Frontend estatico servido desde %s", FRONTEND_DIR)
+else:
+    log.warning("FRONTEND_DIR no existe: %s (la API funcionara sin frontend)", FRONTEND_DIR)
