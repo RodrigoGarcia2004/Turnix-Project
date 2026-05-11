@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Turnix · Panel de Administración</title>
+<style>
+  :root{ --bg:#0f172a; --card:#1e293b; --accent:#06b6d4; --danger:#ef4444; --ok:#10b981; --warn:#f59e0b; --muted:#94a3b8; --text:#f1f5f9; --border:#334155; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  .hidden { display:none !important; }
+  header { background: linear-gradient(90deg,#06b6d4,#0891b2); padding: 18px 28px; display:flex;justify-content:space-between;align-items:center; }
+  header h1 { margin:0; font-size:22px; }
+  header .right { display:flex; align-items:center; gap:14px; font-size:13px; }
+  button { cursor:pointer; border:none; padding:10px 16px; border-radius:8px; font-weight:bold; font-size:14px; }
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-danger { background: var(--danger); color: white; }
+  .btn-ok { background: var(--ok); color: white; }
+  .btn-secondary { background: #475569; color: white; }
+  .container { padding: 28px; max-width: 1200px; margin: 0 auto; }
+  .login-card { max-width: 420px; margin: 80px auto; background: var(--card); border-radius: 16px; padding: 36px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); border: 1px solid var(--border); }
+  .login-card h2 { margin: 0 0 18px; color: var(--accent); }
+  input { width:100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); background: #0f172a; color: var(--text); font-size: 14px; margin-bottom: 10px; }
+  .tabs { display:flex; gap:8px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+  .tab { padding: 12px 18px; cursor:pointer; color: var(--muted); border-bottom: 3px solid transparent; }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 12px; overflow: hidden; }
+  th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; }
+  th { background: #0f172a; color: var(--accent); font-weight: bold; text-transform: uppercase; font-size: 11px; letter-spacing: 1px; }
+  tr:hover { background: rgba(6,182,212,0.05); }
+  .role-badge { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+  .role-ADMIN { background: #f59e0b; color: #422006; }
+  .role-MEDICO { background: #06b6d4; color: #083344; }
+  .role-PACIENTE { background: #10b981; color: #064e3b; }
+  .estado-PENDIENTE { color: var(--warn); }
+  .estado-APROBADA { color: var(--ok); }
+  .estado-RECHAZADA, .estado-CANCELADA { color: var(--danger); }
+  .err { color: var(--danger); font-size: 13px; margin-bottom: 10px; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 100; }
+  .modal-card { background: var(--card); padding: 30px; border-radius: 14px; max-width: 420px; width: 90%; }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="admin-login" class="login-card">
+  <h2>🛡️ Panel de Administración</h2>
+  <p style="color: var(--muted); font-size: 13px;">Solo personal autorizado. Tu sesión requiere reautenticación para cada acción crítica.</p>
+  <input id="adm-user" placeholder="Usuario administrador">
+  <input id="adm-pass" type="password" placeholder="Contraseña">
+  <div id="adm-err" class="err hidden"></div>
+  <button class="btn-primary" style="width:100%;" onclick="adminLogin()">Acceder</button>
+  <p style="text-align:center;margin-top:14px;"><a href="/" style="color:var(--muted);font-size:12px;">← Volver a Turnix</a></p>
+</div>
+
+<!-- PANEL -->
+<div id="admin-panel" class="hidden">
+  <header>
+    <h1>🛡️ Turnix · Administración</h1>
+    <div class="right">
+      <span>Conectado como <b id="adm-current"></b></span>
+      <button class="btn-secondary" onclick="adminLogout()">Cerrar sesión</button>
+    </div>
+  </header>
+  <div class="container">
+    <div class="tabs">
+      <div class="tab active" onclick="adminTab('users')" id="t-users">👥 Usuarios</div>
+      <div class="tab" onclick="adminTab('specs')" id="t-specs">📨 Solicitudes de especialidad</div>
+    </div>
+
+    <div id="pane-users">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <h3 style="margin:0;">Lista de usuarios</h3>
+        <button class="btn-primary" onclick="cargarUsuarios()">↻ Refrescar</button>
+      </div>
+      <table>
+        <thead><tr><th>ID</th><th>Usuario</th><th>Nombre completo</th><th>Email</th><th>Rol</th><th>Especialidad</th><th>Verificado</th><th>Acción</th></tr></thead>
+        <tbody id="tbl-users"><tr><td colspan="8" style="text-align:center;padding:30px;color:var(--muted);">Cargando...</td></tr></tbody>
+      </table>
+    </div>
+
+    <div id="pane-specs" class="hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <h3 style="margin:0;">Solicitudes de cambio de especialidad</h3>
+        <button class="btn-primary" onclick="cargarSolicitudes()">↻ Refrescar</button>
+      </div>
+      <table>
+        <thead><tr><th>#</th><th>Médico</th><th>Email</th><th>Actual</th><th>Solicita</th><th>Motivo</th><th>Estado</th><th>Fecha</th><th>Acción</th></tr></thead>
+        <tbody id="tbl-specs"><tr><td colspan="9" style="text-align:center;padding:30px;color:var(--muted);">Cargando...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CONFIRMACIÓN BORRADO -->
+<div id="modal-del" class="modal-overlay hidden">
+  <div class="modal-card">
+    <h3 style="margin:0 0 10px;color:var(--danger);">⚠️ Confirmar borrado</h3>
+    <p style="color: var(--muted); font-size:13px;">Vas a eliminar <b id="del-target">—</b>. Esta acción no se puede deshacer. Reingresá tu password de admin:</p>
+    <input id="del-pass" type="password" placeholder="Tu contraseña de administrador">
+    <div id="del-err" class="err hidden"></div>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn-secondary" style="flex:1;" onclick="cerrarDel()">Cancelar</button>
+      <button class="btn-danger" style="flex:1;" onclick="confirmarBorrado()">🗑 Borrar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let admCreds = null; // {admin_usuario, admin_password}
+  let pendingDelete = null;
+
+  async function adminLogin() {
+    const u = document.getElementById('adm-user').value.trim();
+    const p = document.getElementById('adm-pass').value;
+    const err = document.getElementById('adm-err');
+    err.classList.add('hidden');
+    if (!u || !p) { err.textContent = 'Completa usuario y contraseña.'; err.classList.remove('hidden'); return; }
+    try {
+      const r = await fetch('/api/admin/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({admin_usuario: u, admin_password: p})});
+      if (!r.ok) { const j = await r.json(); err.textContent = j.detail || 'Acceso denegado'; err.classList.remove('hidden'); return; }
+      admCreds = {admin_usuario: u, admin_password: p};
+      document.getElementById('admin-login').classList.add('hidden');
+      document.getElementById('admin-panel').classList.remove('hidden');
+      document.getElementById('adm-current').textContent = u;
+      cargarUsuarios();
+    } catch(e) { err.textContent = 'Error: ' + e.message; err.classList.remove('hidden'); }
+  }
+  function adminLogout() {
+    admCreds = null;
+    document.getElementById('admin-panel').classList.add('hidden');
+    document.getElementById('admin-login').classList.remove('hidden');
+    document.getElementById('adm-user').value = '';
+    document.getElementById('adm-pass').value = '';
+  }
+  function adminTab(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('t-'+name).classList.add('active');
+    document.getElementById('pane-users').classList.toggle('hidden', name !== 'users');
+    document.getElementById('pane-specs').classList.toggle('hidden', name !== 'specs');
+    if (name === 'specs') cargarSolicitudes();
+    else cargarUsuarios();
+  }
+  async function cargarUsuarios() {
+    if (!admCreds) return;
+    const tbody = document.getElementById('tbl-users');
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--muted);">Cargando...</td></tr>';
+    const r = await fetch('/api/admin/users', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(admCreds)});
+    const users = await r.json();
+    tbody.innerHTML = users.map(u => `
+      <tr>
+        <td>${u.id}</td>
+        <td><b>${u.usuario}</b></td>
+        <td>${u.nombre_completo || u.nombre || '—'}</td>
+        <td>${u.email || '—'}</td>
+        <td><span class="role-badge role-${u.rol}">${u.rol}</span></td>
+        <td>${u.especialidad || '—'}</td>
+        <td>${u.email_verificado ? '✅' : '⚠️'}</td>
+        <td>${u.rol === 'ADMIN' ? '<span style="color:var(--muted);font-size:11px;">protegido</span>' : `<button class="btn-danger" onclick="abrirDel(${u.id},'${u.usuario.replace(/'/g,"\\'")}','${u.rol}')">🗑 Borrar</button>`}</td>
+      </tr>`).join('');
+  }
+  function abrirDel(id, usuario, rol) {
+    pendingDelete = id;
+    document.getElementById('del-target').textContent = `${usuario} (${rol})`;
+    document.getElementById('del-pass').value = '';
+    document.getElementById('del-err').classList.add('hidden');
+    document.getElementById('modal-del').classList.remove('hidden');
+  }
+  function cerrarDel() {
+    document.getElementById('modal-del').classList.add('hidden');
+    pendingDelete = null;
+  }
+  async function confirmarBorrado() {
+    const pass = document.getElementById('del-pass').value;
+    const err = document.getElementById('del-err');
+    err.classList.add('hidden');
+    if (!pass) { err.textContent='Introduce tu password.'; err.classList.remove('hidden'); return; }
+    try {
+      const r = await fetch('/api/admin/delete-user', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({admin_usuario: admCreds.admin_usuario, admin_password: pass, target_user_id: pendingDelete})});
+      if (!r.ok) { const j = await r.json(); err.textContent = j.detail || 'Error'; err.classList.remove('hidden'); return; }
+      cerrarDel();
+      cargarUsuarios();
+    } catch(e) { err.textContent = 'Error: ' + e.message; err.classList.remove('hidden'); }
+  }
+  async function cargarSolicitudes() {
+    if (!admCreds) return;
+    const tbody = document.getElementById('tbl-specs');
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:30px;color:var(--muted);">Cargando...</td></tr>';
+    const r = await fetch('/api/admin/specialty-requests', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(admCreds)});
+    const reqs = await r.json();
+    if (!reqs.length) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:30px;color:var(--muted);">Sin solicitudes.</td></tr>'; return; }
+    tbody.innerHTML = reqs.map(s => `
+      <tr>
+        <td>#${s.id}</td>
+        <td><b>${s.medico_nombre || s.medico_usuario}</b><br><small style="color:var(--muted)">${s.medico_usuario}</small></td>
+        <td>${s.medico_email || '—'}</td>
+        <td>${s.especialidad_actual || '—'}</td>
+        <td><b style="color:var(--accent);">${s.especialidad_nueva}</b></td>
+        <td style="max-width:200px;">${s.motivo || '—'}</td>
+        <td class="estado-${s.estado}">${s.estado}</td>
+        <td>${new Date(s.fecha_solicitud).toLocaleString()}</td>
+        <td>${s.estado === 'PENDIENTE' ? `<button class="btn-ok" onclick="accionSolicitud(${s.id},'APROBADA')">✓</button> <button class="btn-danger" onclick="accionSolicitud(${s.id},'RECHAZADA')">✕</button>` : '—'}</td>
+      </tr>`).join('');
+  }
+  async function accionSolicitud(id, action) {
+    const r = await fetch('/api/admin/specialty-action', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({...admCreds, request_id: id, action})});
+    if (r.ok) cargarSolicitudes();
+    else { const j = await r.json(); alert(j.detail || 'Error'); }
+  }
+</script>
+</body>
+</html>

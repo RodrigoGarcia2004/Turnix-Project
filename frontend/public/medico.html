@@ -118,6 +118,24 @@
                 </div>
             </div>
             <button style="width: 100%; background: var(--secondary);" onclick="guardarAjustes()">Guardar Cambios</button>
+
+            <div style="border-top:2px dashed var(--gray-light); margin: 22px 0 12px; padding-top: 16px;">
+                <h4 style="margin:0 0 8px;color:var(--primary);">🩺 Cambiar especialidad</h4>
+                <p style="font-size:12px;color:var(--gray-dark);margin:0 0 10px;">Esta acción requiere aprobación del administrador.</p>
+                <div class="form-group">
+                    <label>Nueva especialidad</label>
+                    <select id="esp-select" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--gray-light);"></select>
+                </div>
+                <div class="form-group">
+                    <label>Especialidad personalizada (si seleccionaste "Otro")</label>
+                    <input type="text" id="esp-custom" placeholder="Ej: Medicina del deporte" disabled>
+                </div>
+                <div class="form-group">
+                    <label>Motivo (opcional)</label>
+                    <textarea id="esp-motivo" rows="2" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--gray-light);"></textarea>
+                </div>
+                <button onclick="enviarSolicitudEspecialidad()" style="width:100%;background:#7c3aed;">📨 Solicitar cambio</button>
+            </div>
         </div>
     </div>
 
@@ -159,8 +177,15 @@
                 <span style="font-size: 26px;">⭐ <strong id="media-estrellas">0.0</strong></span><br>
                 <small style="color: var(--gray-dark); font-weight: 500;">(<span id="total-votos">0</span> valoraciones)</small>
             </div>
-            <div style="background: #ecfdf5; padding: 14px; border-radius: 10px; margin-bottom: 15px; border: 1px solid #d1fae5;">
-                <p style="margin:0; font-size: 14px;">Estado: <span style="color: #059669; font-weight: bold;">● Conectado</span></p>
+            <div style="background: #ecfdf5; padding: 14px; border-radius: 10px; margin-bottom: 15px; border: 1px solid #d1fae5;" id="status-container">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <p style="margin:0; font-size: 14px;">Estado: <span id="status-text" style="color: #059669; font-weight: bold;">● Conectado</span></p>
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                        <input type="checkbox" id="toggle-offline" onchange="toggleOffline()" style="width:18px;height:18px;cursor:pointer;">
+                        <span style="font-size:12px;color:#475569;">Modo offline</span>
+                    </label>
+                </div>
+                <p id="especialidad-text" style="margin:6px 0 0; font-size: 12px; color:#475569;">Especialidad: <b id="esp-actual">—</b></p>
             </div>
             <div id="log-actividad">Esperando actividad...</div>
             <hr style="border: 0; border-top: 1px solid var(--gray-light); margin: 22px 0;">
@@ -237,19 +262,37 @@
                 document.getElementById('dashboard-medico').style.display = 'grid';
                 addLog("Sesión iniciada correctamente.");
                 cargarFotoPerfilMedico();
+                cargarEspecialidades();
                 return;
             }
 
             if (data.startsWith("TURNO_ASIGNADO")) {
-                const info = data.replace("TURNO_ASIGNADO: ", "");
-                const nombre = info.split(" (")[0];
+                // Nuevo formato: TURNO_ASIGNADO:<displayName>:<usuario>:<numero>:<tipo>:<prioridad>
+                // o legacy: TURNO_ASIGNADO: nombre (Turno #N)
+                let nombre, usuario_id, numero, tipo, prio;
+                if (data.startsWith("TURNO_ASIGNADO:")) {
+                    const p = data.substring("TURNO_ASIGNADO:".length).split(":");
+                    nombre = p[0]; usuario_id = p[1] || ''; numero = p[2] || '?';
+                    tipo = p[3] || 'Otro'; prio = p[4] || 'Moderada';
+                } else {
+                    const info = data.replace("TURNO_ASIGNADO: ", "");
+                    nombre = info.split(" (")[0];
+                    usuario_id = nombre; numero = '?'; tipo = 'Otro'; prio = 'Moderada';
+                }
                 const lista = document.getElementById('lista-turnos');
+                const colorBg = prio === 'Urgente' ? '#fee2e2' : prio === 'Leve' ? '#d1fae5' : '#fef3c7';
+                const colorBorder = prio === 'Urgente' ? '#ef4444' : prio === 'Leve' ? '#10b981' : '#f59e0b';
+                const colorText = prio === 'Urgente' ? '#991b1b' : prio === 'Leve' ? '#065f46' : '#92400e';
+                const emojiPrio = prio === 'Urgente' ? '🔴' : prio === 'Leve' ? '🟢' : '🟡';
                 lista.innerHTML += `
-                    <div class="turno-item" id="turno-${nombre}">
-                        <span><i style="color:var(--primary)">🎫</i> <b>${info}</b></span>
+                    <div class="turno-item" id="turno-${nombre}" style="background:${colorBg};border-left:5px solid ${colorBorder};padding:12px;border-radius:10px;margin:8px 0;display:flex;justify-content:space-between;align-items:center;">
+                        <div>
+                            <div style="font-weight:bold;color:${colorText};">🎫 #${numero} · ${nombre}</div>
+                            <div style="font-size:12px;color:${colorText};margin-top:3px;">${emojiPrio} ${prio} · ${tipo}</div>
+                        </div>
                         <button class="atender" onclick="abrirChat('${nombre}')">Atender</button>
                     </div>`;
-                addLog("📢 Nuevo turno: " + nombre);
+                addLog(`📢 Turno ${emojiPrio} ${prio}: ${nombre} (${tipo})`);
                 return;
             }
 
@@ -586,7 +629,63 @@
                 const u = await r.json();
                 if (u.foto_base64) document.getElementById('img-perfil-medico').src = u.foto_base64;
                 if (u.nombre_completo) document.getElementById('nombre-profesional').innerText = u.nombre_completo;
+                const esp = document.getElementById('esp-actual');
+                if (esp) esp.textContent = u.especialidad || 'No asignada';
             } catch (e) {}
+        }
+
+        async function cargarEspecialidades() {
+            try {
+                const r = await fetch('/api/especialidades');
+                const d = await r.json();
+                const all = [...d.base, ...d.extras];
+                const sel = document.getElementById('esp-select');
+                if (sel) sel.innerHTML = all.map(t => `<option value="${t}">${t}</option>`).join('');
+                if (sel) sel.addEventListener('change', () => {
+                    document.getElementById('esp-custom').disabled = (sel.value !== 'Otro');
+                });
+            } catch(e){}
+        }
+
+        async function enviarSolicitudEspecialidad() {
+            const sel = document.getElementById('esp-select');
+            let nueva = sel.value;
+            if (nueva === 'Otro') {
+                const custom = document.getElementById('esp-custom').value.trim();
+                if (!custom) { alert('Escribe la especialidad personalizada.'); return; }
+                nueva = custom;
+            }
+            const pass = prompt("Tu contraseña actual para confirmar:");
+            if (!pass) return;
+            try {
+                const r = await fetch('/api/medico/solicitar-especialidad', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({medico_id: myUserId, password: pass, especialidad_nueva: nueva, motivo: document.getElementById('esp-motivo').value})
+                });
+                if (!r.ok) { const j = await r.json(); alert("Error: "+(j.detail||r.status)); return; }
+                alert("Solicitud enviada. El administrador la revisará pronto.");
+            } catch(e) { alert("Error: " + e.message); }
+        }
+
+        async function toggleOffline() {
+            const checked = document.getElementById('toggle-offline').checked;
+            try {
+                await fetch('/api/medico/toggle-offline', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({medico_id: myUserId, offline: checked})
+                });
+                const txt = document.getElementById('status-text');
+                const cont = document.getElementById('status-container');
+                if (checked) {
+                    txt.innerHTML = '● Desconectado'; txt.style.color = '#dc2626';
+                    cont.style.background = '#fef2f2'; cont.style.borderColor = '#fecaca';
+                    addLog('🔴 Modo offline: no recibirás nuevos turnos.');
+                } else {
+                    txt.innerHTML = '● Conectado'; txt.style.color = '#059669';
+                    cont.style.background = '#ecfdf5'; cont.style.borderColor = '#d1fae5';
+                    addLog('🟢 Modo online: recibiendo turnos.');
+                }
+            } catch(e) { alert("Error: " + e.message); }
         }
 
         function abrirImagenFullScreen(src) {

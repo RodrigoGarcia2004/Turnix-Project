@@ -117,6 +117,41 @@
         </div>
     </div>
 
+    <!-- MODAL VERIFICACIÓN DE EMAIL -->
+    <div id="modal-verif" class="modal hidden">
+        <div class="modal-content" style="max-width: 460px;">
+            <h3 style="color: #0d9488; margin-top: 0;">📧 Verifica tu email</h3>
+            <p style="font-size:14px;color:#475569;">Te hemos enviado un código de 6 dígitos a <b id="verif-email-target">tu email</b>. Introdúcelo para activar tu cuenta.</p>
+            <input id="verif-codigo" maxlength="6" placeholder="123456" style="font-size:28px;letter-spacing:10px;text-align:center;padding:14px;margin:14px 0;width:100%;border:2px solid #e2e8f0;border-radius:10px;">
+            <div id="verif-err" style="color:#dc2626;font-size:13px;margin-bottom:10px;display:none;"></div>
+            <button onclick="confirmarCodigo()" style="background:#0d9488;width:100%;">Confirmar</button>
+            <button onclick="reenviarCodigo()" style="background:#f1f5f9;color:#475569;width:100%;margin-top:8px;font-size:13px;">¿No te llegó? Reenviar código</button>
+        </div>
+    </div>
+
+    <!-- MODAL TIPO + PRIORIDAD DE TURNO -->
+    <div id="modal-tipo" class="modal hidden">
+        <div class="modal-content" style="max-width:480px;">
+            <h3 style="color:#0d9488;margin-top:0;">🎫 Nuevo turno</h3>
+            <div class="form-group" style="margin-top:14px;">
+                <label>Motivo de consulta</label>
+                <select id="sel-tipo" style="width:100%;padding:12px;border-radius:10px;border:2px solid #e2e8f0;font-size:14px;"></select>
+            </div>
+            <div class="form-group" style="margin-top:14px;">
+                <label>Prioridad</label>
+                <div style="display:flex;gap:8px;margin-top:6px;">
+                    <button type="button" class="prio-btn" data-prio="Leve" onclick="selPrio('Leve')" style="flex:1;padding:10px;border-radius:10px;border:2px solid #10b981;background:white;color:#065f46;font-weight:bold;cursor:pointer;">🟢 Leve</button>
+                    <button type="button" class="prio-btn" data-prio="Moderada" onclick="selPrio('Moderada')" style="flex:1;padding:10px;border-radius:10px;border:2px solid #f59e0b;background:#fef3c7;color:#92400e;font-weight:bold;cursor:pointer;">🟡 Moderada</button>
+                    <button type="button" class="prio-btn" data-prio="Urgente" onclick="selPrio('Urgente')" style="flex:1;padding:10px;border-radius:10px;border:2px solid #ef4444;background:white;color:#991b1b;font-weight:bold;cursor:pointer;">🔴 Urgente</button>
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:18px;">
+                <button onclick="cerrarTipo()" style="flex:1;background:#f1f5f9;color:#475569;">Cancelar</button>
+                <button onclick="enviarTurno()" style="flex:1;background:#0d9488;">Confirmar turno</button>
+            </div>
+        </div>
+    </div>
+
     <!-- PANTALLA PRINCIPAL -->
     <div class="main-container hidden" id="main-screen">
 
@@ -241,14 +276,24 @@
                 return;
             }
 
-            // REGISTRO
+            // REGISTRO (legacy fallback)
             if (data === "REGISTRO_OK") {
                 alert("¡Cuenta creada! Iniciando sesión...");
                 socket.send(`login:${document.getElementById('reg-user').value}:${document.getElementById('reg-pass').value}`);
                 return;
             }
-            if (data === "REGISTRO_ERROR") {
+            if (data === "REGISTRO_ERROR" || data === "REGISTRO_LEGACY_DEPRECATED") {
                 alert("No se pudo registrar. ¿El usuario ya existe?");
+                return;
+            }
+
+            // EMAIL NO VERIFICADO
+            if (data.startsWith("NEEDS_VERIFICATION:")) {
+                pendingVerifUserId = parseInt(data.split(":")[1], 10);
+                alert("Tu cuenta no está verificada. Te volveremos a enviar el código por email.");
+                fetch('/api/auth/resend-code', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({usuario: document.getElementById('user').value}) });
+                document.getElementById('verif-email-target').textContent = "tu email registrado";
+                document.getElementById('modal-verif').classList.remove('hidden');
                 return;
             }
 
@@ -331,17 +376,94 @@
 
         function login() { socket.send(`login:${document.getElementById('user').value}:${document.getElementById('pass').value}`); }
 
-        function registrarUsuario() {
-            const nombre = document.getElementById('reg-nombre').value;
-            const apellidos = document.getElementById('reg-apellidos').value;
-            const user = document.getElementById('reg-user').value;
+        let pendingVerifUserId = null;
+        let pendingVerifEmail = "";
+
+        async function registrarUsuario() {
+            const nombre = document.getElementById('reg-nombre').value.trim();
+            const apellidos = document.getElementById('reg-apellidos').value.trim();
+            const email = document.getElementById('reg-email').value.trim();
+            const user = document.getElementById('reg-user').value.trim();
             const pass = document.getElementById('reg-pass').value;
-            if (!user || !pass) { alert("Usuario y contraseña son obligatorios"); return; }
-            socket.send(`registro:${user}:${pass}:${nombre} ${apellidos}`);
+            if (!user || !pass || !email) { alert("Usuario, contraseña y email son obligatorios"); return; }
+            try {
+                const r = await fetch('/api/auth/register-init', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({usuario: user, password: pass, nombre_completo: (nombre+' '+apellidos).trim(), email})
+                });
+                if (!r.ok) {
+                    const j = await r.json().catch(()=>({}));
+                    alert("No se pudo crear la cuenta: " + (j.detail || r.status));
+                    return;
+                }
+                const j = await r.json();
+                pendingVerifUserId = j.user_id;
+                pendingVerifEmail = j.email;
+                document.getElementById('verif-email-target').textContent = j.email;
+                document.getElementById('modal-verif').classList.remove('hidden');
+            } catch (e) { alert("Error de red: " + e.message); }
         }
 
-        function pedirTurno() {
-            socket.send("PEDIR_TURNO");
+        async function confirmarCodigo() {
+            const cod = document.getElementById('verif-codigo').value.trim();
+            const err = document.getElementById('verif-err');
+            err.style.display = 'none';
+            if (cod.length !== 6) { err.textContent = "Introduce los 6 dígitos."; err.style.display='block'; return; }
+            try {
+                const r = await fetch('/api/auth/register-confirm', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({user_id: pendingVerifUserId, codigo: cod})
+                });
+                if (!r.ok) {
+                    const j = await r.json().catch(()=>({}));
+                    err.textContent = j.detail || "Código inválido";
+                    err.style.display='block';
+                    return;
+                }
+                document.getElementById('modal-verif').classList.add('hidden');
+                alert("¡Cuenta verificada! Iniciando sesión...");
+                socket.send(`login:${document.getElementById('reg-user').value}:${document.getElementById('reg-pass').value}`);
+            } catch (e) { err.textContent = "Error: " + e.message; err.style.display='block'; }
+        }
+
+        async function reenviarCodigo() {
+            try {
+                const r = await fetch('/api/auth/resend-code', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({usuario: document.getElementById('reg-user').value})
+                });
+                if (r.ok) alert("Código reenviado.");
+                else { const j = await r.json(); alert("Error: "+(j.detail||r.status)); }
+            } catch (e) { alert("Error: " + e.message); }
+        }
+
+        // ========== TIPO + PRIORIDAD ==========
+        let selectedPrio = "Moderada";
+        function selPrio(p) {
+            selectedPrio = p;
+            document.querySelectorAll('.prio-btn').forEach(b => {
+                if (b.dataset.prio === p) b.style.transform = 'scale(1.05)', b.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+                else b.style.transform = 'none', b.style.boxShadow = 'none';
+            });
+        }
+        async function pedirTurno() {
+            // Cargar tipos
+            try {
+                const r = await fetch('/api/especialidades');
+                const d = await r.json();
+                const all = [...d.base, ...d.extras];
+                const sel = document.getElementById('sel-tipo');
+                sel.innerHTML = all.map(t => `<option value="${t}">${t}</option>`).join('');
+                sel.value = 'Otro';
+            } catch(e){}
+            selPrio("Moderada");
+            document.getElementById('modal-tipo').classList.remove('hidden');
+        }
+        function cerrarTipo() { document.getElementById('modal-tipo').classList.add('hidden'); }
+        function enviarTurno() {
+            const tipo = document.getElementById('sel-tipo').value || 'Otro';
+            cerrarTipo();
+            socket.send(`PEDIR_TURNO:${tipo}:${selectedPrio}`);
             document.getElementById('status-area').innerText = "Solicitando turno...";
             document.getElementById('main-spinner').style.display = 'block';
             document.getElementById('btn-turno').classList.add('hidden');

@@ -31,6 +31,10 @@ from reportlab.lib.units import cm
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
 
+import resend
+import random
+import string
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
@@ -39,6 +43,58 @@ FRONTEND_DIR = Path(os.environ.get(
     "FRONTEND_DIR",
     str(ROOT_DIR.parent / "frontend" / "public")
 ))
+
+# Resend (envio de emails de verificacion)
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
+if RESEND_API_KEY:
+    resend.api_key = RESEND_API_KEY
+
+# Especialidades por defecto disponibles para los medicos
+ESPECIALIDADES_BASE = [
+    "Medicina General", "Pediatría", "Traumatología", "Cardiología",
+    "Dermatología", "Ginecología", "Neurología", "Psiquiatría",
+    "Oftalmología", "Otorrinolaringología", "Endocrinología",
+    "Urología", "Oncología", "Reumatología", "Nutrición",
+    "Psicología", "Odontología", "Otro",
+]
+
+# Medicos en modo desconectado (in-memory). user_id -> True
+medicos_offline: set = set()
+
+
+def _gen_codigo() -> str:
+    return "".join(random.choices(string.digits, k=6))
+
+
+async def enviar_codigo_email(destinatario: str, codigo: str, nombre: str):
+    """Envia codigo de 6 digitos via Resend. No bloquea el event loop."""
+    if not RESEND_API_KEY:
+        log.warning("RESEND_API_KEY no configurado, no se envia email a %s", destinatario)
+        return None
+    html = f"""
+    <table style="font-family: Arial, sans-serif; max-width: 520px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; padding: 30px;">
+      <tr><td style="text-align:center;">
+        <h1 style="color: #0d9488; margin: 0 0 10px;">Turnix Salud</h1>
+        <p style="color: #475569; margin: 0 0 24px;">Confirmación de cuenta</p>
+        <p style="color: #1e293b; font-size: 15px;">Hola <b>{nombre or destinatario}</b>,</p>
+        <p style="color: #1e293b; font-size: 15px;">Tu código de verificación es:</p>
+        <div style="background: #0d9488; color: white; font-size: 32px; letter-spacing: 8px; font-weight: bold;
+                    padding: 18px; border-radius: 12px; margin: 18px 0;">{codigo}</div>
+        <p style="color: #64748b; font-size: 12px;">El código caduca en 15 minutos. Si no creaste esta cuenta, ignora este mensaje.</p>
+      </td></tr>
+    </table>"""
+    params = {
+        "from": SENDER_EMAIL,
+        "to": [destinatario],
+        "subject": "Turnix · Tu código de verificación",
+        "html": html,
+    }
+    try:
+        return await asyncio.to_thread(resend.Emails.send, params)
+    except Exception as e:
+        log.exception("Resend send falló: %s", e)
+        raise HTTPException(500, f"No se pudo enviar el email: {e}")
 
 UPLOADS_DIR = Path(os.environ.get("UPLOADS_DIR", "/app/uploads"))
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
@@ -355,10 +411,13 @@ async def historial_chat_activa():
 
 @api.get("/historial/paciente/{usuario}")
 async def historial_paciente(usuario: str):
-    """Para el medico: historial completo de un paciente (turnos, mensajes, docs)."""
+    """Para el medico: historial completo de un paciente (turnos, mensajes, docs).
+    Acepta tanto 'usuario' como 'nombre_completo' como identificador."""
     async with app.state.pool.acquire() as conn:
         u = await conn.fetchrow(
-            "SELECT id, usuario, nombre_completo FROM usuarios WHERE usuario=$1",
+            """SELECT id, usuario, nombre_completo FROM usuarios
+                WHERE usuario=$1 OR nombre_completo=$1 OR nombre=$1
+                ORDER BY (usuario=$1) DESC LIMIT 1""",
             usuario,
         )
         if not u:
@@ -485,6 +544,282 @@ async def justificante_pdf(turno_id: int, user_id: int):
 
 
 
+# ======================================================================
+# REGISTRO CON VERIFICACION DE EMAIL (Resend)
+# ======================================================================
+class RegisterInit(BaseModel):
+    usuario: str
+    password: str
+    nombre_completo: str
+    email: str
+
+
+@api.post("/auth/register-init")
+async def auth_register_init(body: RegisterInit):
+    """Crea cuenta con email_verificado=FALSE, genera codigo y lo envia por email."""
+    codigo = _gen_codigo()
+    async with app.state.pool.acquire() as conn:
+        existe = await conn.fetchval("SELECT 1 FROM usuarios WHERE usuario=$1", body.usuario)
+        if existe:
+            raise HTTPException(409, "Ese usuario ya existe")
+        row = await conn.fetchrow(
+            """INSERT INTO usuarios
+                (nombre, usuario, password, rol, nombre_completo, email,
+                 email_verificado, codigo_verif, codigo_expira)
+               VALUES ($1, $2, $3, 'PACIENTE'::rol_usuario, $4, $5,
+                       FALSE, $6, NOW() + INTERVAL '15 minutes')
+               RETURNING id""",
+            body.nombre_completo, body.usuario, body.password,
+            body.nombre_completo, body.email, codigo,
+        )
+    try:
+        await enviar_codigo_email(body.email, codigo, body.nombre_completo)
+    except HTTPException:
+        async with app.state.pool.acquire() as conn:
+            await conn.execute("DELETE FROM usuarios WHERE id=$1", row["id"])
+        raise
+    return {"user_id": row["id"], "email": body.email, "ok": True}
+
+
+class RegisterConfirm(BaseModel):
+    user_id: int
+    codigo: str
+
+
+@api.post("/auth/register-confirm")
+async def auth_register_confirm(body: RegisterConfirm):
+    async with app.state.pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT codigo_verif, codigo_expira, email_verificado
+                 FROM usuarios WHERE id=$1""", body.user_id,
+        )
+        if not row:
+            raise HTTPException(404, "Usuario no encontrado")
+        if row["email_verificado"]:
+            return {"ok": True, "already": True}
+        if row["codigo_verif"] != body.codigo.strip():
+            raise HTTPException(400, "Código incorrecto")
+        if row["codigo_expira"] and row["codigo_expira"] < datetime.now(timezone.utc):
+            raise HTTPException(400, "Código caducado, solicita uno nuevo")
+        await conn.execute(
+            """UPDATE usuarios SET email_verificado=TRUE,
+                                   codigo_verif=NULL, codigo_expira=NULL
+                WHERE id=$1""", body.user_id,
+        )
+    return {"ok": True}
+
+
+class ResendCode(BaseModel):
+    usuario: str
+
+
+@api.post("/auth/resend-code")
+async def auth_resend(body: ResendCode):
+    codigo = _gen_codigo()
+    async with app.state.pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """UPDATE usuarios SET codigo_verif=$1,
+                                   codigo_expira=NOW() + INTERVAL '15 minutes'
+                WHERE usuario=$2 AND email_verificado=FALSE
+                RETURNING id, email, nombre_completo""",
+            codigo, body.usuario,
+        )
+    if not row:
+        raise HTTPException(404, "No hay verificación pendiente para ese usuario")
+    await enviar_codigo_email(row["email"], codigo, row["nombre_completo"])
+    return {"ok": True, "user_id": row["id"]}
+
+
+# ======================================================================
+# Especialidades disponibles
+# ======================================================================
+@api.get("/especialidades")
+async def especialidades():
+    async with app.state.pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT DISTINCT especialidad FROM usuarios
+                WHERE especialidad IS NOT NULL AND especialidad <> ''"""
+        )
+    extras = [r["especialidad"] for r in rows if r["especialidad"] not in ESPECIALIDADES_BASE]
+    return {"base": ESPECIALIDADES_BASE, "extras": extras}
+
+
+# ======================================================================
+# Solicitudes de cambio de especialidad
+# ======================================================================
+class EspecialidadReq(BaseModel):
+    medico_id: int
+    password: str
+    especialidad_nueva: str
+    motivo: Optional[str] = ""
+
+
+@api.post("/medico/solicitar-especialidad")
+async def solicitar_especialidad(body: EspecialidadReq):
+    async with app.state.pool.acquire() as conn:
+        m = await conn.fetchrow(
+            """SELECT id, especialidad, password, rol::text AS rol
+                 FROM usuarios WHERE id=$1""", body.medico_id,
+        )
+        if not m or m["rol"] != "MEDICO":
+            raise HTTPException(403, "Solo médicos pueden solicitar cambio")
+        if m["password"] != body.password:
+            raise HTTPException(401, "Contraseña incorrecta")
+        await conn.execute(
+            """UPDATE solicitudes_especialidad SET estado='CANCELADA'
+                WHERE medico_id=$1 AND estado='PENDIENTE'""", body.medico_id,
+        )
+        await conn.execute(
+            """INSERT INTO solicitudes_especialidad
+                (medico_id, especialidad_actual, especialidad_nueva, motivo)
+               VALUES ($1, $2, $3, $4)""",
+            body.medico_id, m["especialidad"], body.especialidad_nueva, body.motivo or "",
+        )
+    return {"ok": True}
+
+
+# ======================================================================
+# ADMIN: requiere usuario+password en cada request
+# ======================================================================
+async def _check_admin(usuario: str, password: str) -> int:
+    async with app.state.pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT id FROM usuarios
+                WHERE usuario=$1 AND password=$2 AND rol='ADMIN'""",
+            usuario, password,
+        )
+    if not row:
+        raise HTTPException(403, "Credenciales de administrador no válidas")
+    return row["id"]
+
+
+class AdminCreds(BaseModel):
+    admin_usuario: str
+    admin_password: str
+
+
+@api.post("/admin/login")
+async def admin_login(body: AdminCreds):
+    await _check_admin(body.admin_usuario, body.admin_password)
+    return {"ok": True}
+
+
+@api.post("/admin/users")
+async def admin_users(body: AdminCreds):
+    await _check_admin(body.admin_usuario, body.admin_password)
+    async with app.state.pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT id, usuario, nombre, nombre_completo, email,
+                      rol::text AS rol, especialidad, email_verificado,
+                      total_votos, suma_valoraciones, fecha_creacion
+                 FROM usuarios ORDER BY id ASC"""
+        )
+    return [dict(r) for r in rows]
+
+
+class AdminDelete(BaseModel):
+    admin_usuario: str
+    admin_password: str
+    target_user_id: int
+
+
+@api.post("/admin/delete-user")
+async def admin_delete(body: AdminDelete):
+    admin_id = await _check_admin(body.admin_usuario, body.admin_password)
+    if body.target_user_id == admin_id:
+        raise HTTPException(400, "No puedes borrar tu propia cuenta")
+    async with app.state.pool.acquire() as conn:
+        await conn.execute("DELETE FROM mensajes WHERE emisor_id=$1", body.target_user_id)
+        await conn.execute(
+            """DELETE FROM documentos WHERE id_turno IN
+                (SELECT id FROM turnos WHERE id_paciente=$1 OR atendido_por=$1)""",
+            body.target_user_id,
+        )
+        await conn.execute(
+            """DELETE FROM historial WHERE id_turno IN
+                (SELECT id FROM turnos WHERE id_paciente=$1 OR atendido_por=$1)""",
+            body.target_user_id,
+        )
+        await conn.execute(
+            """DELETE FROM valoraciones WHERE turno_id IN
+                (SELECT id FROM turnos WHERE id_paciente=$1 OR atendido_por=$1)""",
+            body.target_user_id,
+        )
+        await conn.execute(
+            "DELETE FROM turnos WHERE id_paciente=$1 OR atendido_por=$1",
+            body.target_user_id,
+        )
+        await conn.execute("DELETE FROM solicitudes_especialidad WHERE medico_id=$1", body.target_user_id)
+        await conn.execute("DELETE FROM usuarios WHERE id=$1", body.target_user_id)
+    return {"ok": True}
+
+
+@api.post("/admin/specialty-requests")
+async def admin_spec_list(body: AdminCreds):
+    await _check_admin(body.admin_usuario, body.admin_password)
+    async with app.state.pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT s.id, s.medico_id, s.especialidad_actual, s.especialidad_nueva,
+                      s.motivo, s.estado, s.fecha_solicitud, s.fecha_resolucion,
+                      u.usuario AS medico_usuario, u.nombre_completo AS medico_nombre,
+                      u.email AS medico_email
+                 FROM solicitudes_especialidad s
+                 JOIN usuarios u ON u.id = s.medico_id
+                ORDER BY (s.estado='PENDIENTE') DESC, s.fecha_solicitud DESC"""
+        )
+    return [dict(r) for r in rows]
+
+
+class AdminSpecAction(BaseModel):
+    admin_usuario: str
+    admin_password: str
+    request_id: int
+    action: str  # 'APROBADA' o 'RECHAZADA'
+
+
+@api.post("/admin/specialty-action")
+async def admin_spec_action(body: AdminSpecAction):
+    admin_id = await _check_admin(body.admin_usuario, body.admin_password)
+    if body.action not in ("APROBADA", "RECHAZADA"):
+        raise HTTPException(400, "Acción inválida")
+    async with app.state.pool.acquire() as conn:
+        req = await conn.fetchrow(
+            "SELECT medico_id, especialidad_nueva FROM solicitudes_especialidad WHERE id=$1 AND estado='PENDIENTE'",
+            body.request_id,
+        )
+        if not req:
+            raise HTTPException(404, "Solicitud no encontrada o ya resuelta")
+        await conn.execute(
+            """UPDATE solicitudes_especialidad
+                  SET estado=$1, fecha_resolucion=NOW(), resuelto_por=$2
+                WHERE id=$3""", body.action, admin_id, body.request_id,
+        )
+        if body.action == "APROBADA":
+            await conn.execute(
+                "UPDATE usuarios SET especialidad=$1 WHERE id=$2",
+                req["especialidad_nueva"], req["medico_id"],
+            )
+    return {"ok": True}
+
+
+# ======================================================================
+# Doctor online/offline toggle (in-memory)
+# ======================================================================
+class ToggleOffline(BaseModel):
+    medico_id: int
+    offline: bool
+
+
+@api.post("/medico/toggle-offline")
+async def toggle_offline(body: ToggleOffline):
+    if body.offline:
+        medicos_offline.add(body.medico_id)
+    else:
+        medicos_offline.discard(body.medico_id)
+    return {"ok": True, "offline": body.offline}
+
+
+
 # ----------------------------------------------------------------------
 # WebSocket - protocolo replicado del ServidorWeb.java
 # ----------------------------------------------------------------------
@@ -533,14 +868,21 @@ async def handle_message(ws: WebSocket, message: str):
             async with pool.acquire() as conn:
                 row = await conn.fetchrow(
                     """SELECT id, nombre, usuario, rol::text AS rol, email, nombre_completo,
+                              especialidad,
                               COALESCE(suma_valoraciones,0) AS suma, COALESCE(total_votos,0) AS total
                          FROM usuarios WHERE usuario=$1 AND password=$2""",
                     username, password,
                 )
             if row:
                 user = dict(row)
+                # Bloquear si email no verificado (solo PACIENTE)
+                if user["rol"] == "PACIENTE":
+                    async with pool.acquire() as conn:
+                        ver = await conn.fetchval("SELECT email_verificado FROM usuarios WHERE id=$1", user["id"])
+                    if not ver:
+                        await safe_send(ws, f"NEEDS_VERIFICATION:{user['id']}")
+                        return
                 set_user(ws, user)
-                # Si es medico/admin, enviar reputacion actual
                 nombre = display_name(user)
                 await safe_send(ws, f"LOGIN_OK:{user['rol']}:{nombre}:{user['id']}:{user['usuario']}")
                 if user["rol"] in ("MEDICO", "ADMIN"):
@@ -562,40 +904,29 @@ async def handle_message(ws: WebSocket, message: str):
             await safe_send(ws, "ERROR: Fallo en autenticacion")
         return
 
-    # ==================== REGISTRO ====================
+    # ==================== REGISTRO (legacy, mantenido para compat) ====================
     if message.startswith("registro:"):
-        partes = message.split(":", 3)
-        if len(partes) < 4:
-            await safe_send(ws, "REGISTRO_ERROR")
-            return
-        username, password, nombre_real = partes[1], partes[2], partes[3]
-        try:
-            async with pool.acquire() as conn:
-                # Comprobar duplicado
-                exists = await conn.fetchval(
-                    "SELECT 1 FROM usuarios WHERE usuario=$1", username
-                )
-                if exists:
-                    await safe_send(ws, "REGISTRO_ERROR")
-                    return
-                await conn.execute(
-                    """INSERT INTO usuarios (nombre, usuario, password, rol, nombre_completo)
-                       VALUES ($1,$2,$3,'PACIENTE'::rol_usuario,$4)""",
-                    nombre_real, username, password, nombre_real,
-                )
-            await safe_send(ws, "REGISTRO_OK")
-        except Exception as e:
-            log.exception("Registro error")
-            await safe_send(ws, "REGISTRO_ERROR")
+        # El flujo nuevo es REST /api/auth/register-init + /register-confirm.
+        # Aquí solo devolvemos un error para forzar al cliente a usar el modal nuevo.
+        await safe_send(ws, "REGISTRO_LEGACY_DEPRECATED")
         return
 
     # ==================== PEDIR TURNO ====================
-    if message == "PEDIR_TURNO":
+    if message.startswith("PEDIR_TURNO"):
         user = get_user(ws)
         if not user:
             await safe_send(ws, "ERROR: No autenticado")
             return
-        # Comprobar si ya tiene un turno en espera
+        # Formato: PEDIR_TURNO:<tipo>:<prioridad>   (opcional, default Otro/Moderada)
+        tipo = "Otro"
+        prioridad = "Moderada"
+        if ":" in message:
+            partes = message.split(":", 2)
+            if len(partes) >= 2 and partes[1]:
+                tipo = partes[1]
+            if len(partes) >= 3 and partes[2]:
+                prioridad = partes[2]
+        # Comprobar si ya tiene turno en espera
         for w in cola_espera:
             u = get_user(w)
             if u and u["id"] == user["id"]:
@@ -608,14 +939,32 @@ async def handle_message(ws: WebSocket, message: str):
                     "SELECT COALESCE(MAX(numero_turno),0)+1 FROM turnos"
                 )
                 row = await conn.fetchrow(
-                    """INSERT INTO turnos (numero_turno, cliente, estado, fecha, id_paciente)
-                       VALUES ($1,$2,'EN_ESPERA'::estado_turno, NOW(), $3)
+                    """INSERT INTO turnos
+                        (numero_turno, cliente, estado, fecha, id_paciente, tipo_consulta, prioridad)
+                       VALUES ($1,$2,'EN_ESPERA'::estado_turno, NOW(), $3, $4, $5)
                        RETURNING id, numero_turno""",
-                    num, nombre, user["id"],
+                    num, nombre, user["id"], tipo, prioridad,
                 )
+            # Marcar el WS con el turno en cola (con tipo+prioridad embebidos)
+            ws.turno_tipo = tipo
+            ws.turno_prioridad = prioridad
+            ws.turno_usuario = user["usuario"]
             cola_espera.append(ws)
-            msg = f"TURNO_ASIGNADO: {nombre} (Turno #{row['numero_turno']})"
+            # Broadcast filtrado: solo medicos con esa especialidad (o todos si 'Otro')
+            # y que no estén offline
+            msg = f"TURNO_ASIGNADO:{nombre}:{user['usuario']}:{row['numero_turno']}:{tipo}:{prioridad}"
             for c in all_clients:
+                u2 = get_user(c)
+                if not u2: continue
+                if u2["rol"] not in ("MEDICO", "ADMIN"): 
+                    # Otros pacientes también reciben el broadcast genérico para feedback
+                    await safe_send(c, msg); continue
+                if u2["id"] in medicos_offline: continue
+                # Filtro por especialidad
+                if tipo != "Otro" and u2["rol"] == "MEDICO":
+                    esp = (u2.get("especialidad") or "").strip()
+                    if esp and esp != tipo:
+                        continue
                 await safe_send(c, msg)
             await actualizar_posiciones_cola()
         except Exception as e:
@@ -623,16 +972,31 @@ async def handle_message(ws: WebSocket, message: str):
             await safe_send(ws, "ERROR: No se pudo crear el turno")
         return
 
+
     # ==================== LLAMAR SIGUIENTE ====================
     if message == "LLAMAR_SIGUIENTE":
-        if not cola_espera:
-            await safe_send(ws, "ERROR: No hay pacientes en espera.")
-            return
-        paciente_ws = cola_espera.pop(0)
-        await actualizar_posiciones_cola()
         medico = get_user(ws)
-        nombre_medico = medico["usuario"] if medico else "Médico"
-        if paciente_ws and paciente_ws.client_state.value == 1:  # CONNECTED
+        if not medico:
+            await safe_send(ws, "ERROR: No autenticado"); return
+        if medico["id"] in medicos_offline:
+            await safe_send(ws, "ERROR: Estás en modo desconectado. Vuelve a conectarte para atender pacientes.")
+            return
+        esp_medico = (medico.get("especialidad") or "").strip()
+        # Buscar el primer paciente en cola cuyo tipo encaje con la especialidad
+        # (o tipo='Otro' que es para cualquiera, o si el medico no tiene especialidad asignada)
+        paciente_ws = None
+        for w in list(cola_espera):
+            tipo = getattr(w, "turno_tipo", "Otro") or "Otro"
+            if tipo == "Otro" or not esp_medico or esp_medico == tipo:
+                paciente_ws = w
+                cola_espera.remove(w)
+                break
+        if paciente_ws is None:
+            await safe_send(ws, "ERROR: No hay pacientes en cola que coincidan con tu especialidad.")
+            return
+        await actualizar_posiciones_cola()
+        nombre_medico = medico["usuario"]
+        if paciente_ws and paciente_ws.client_state.value == 1:
             paciente_user = get_user(paciente_ws)
             nombre_paciente = paciente_user["usuario"] if paciente_user else "Paciente"
             await safe_send(paciente_ws, "SISTEMA: LLAMADA_A_CONSULTA")
