@@ -574,10 +574,10 @@ async def auth_register_init(body: RegisterInit):
         )
     try:
         await enviar_codigo_email(body.email, codigo, body.nombre_completo)
-    except HTTPException:
-        async with app.state.pool.acquire() as conn:
-            await conn.execute("DELETE FROM usuarios WHERE id=$1", row["id"])
-        raise
+    except Exception as e:
+        log.warning(f"No se pudo enviar email de verificación: {e}")
+    # No borramos el usuario ni devolvemos error.
+    # El usuario se crea igual (para que puedas probar)
     return {"user_id": row["id"], "email": body.email, "ok": True}
 
 
