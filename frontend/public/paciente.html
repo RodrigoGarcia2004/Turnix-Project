@@ -51,7 +51,7 @@
         .gear-btn { font-size: 24px; cursor: pointer; transition: transform 0.4s ease; background: none; box-shadow: none; width: auto; padding: 0; color: var(--text-muted); }
         .gear-btn:hover { transform: rotate(90deg); color: var(--primary); }
 
-        #status-container { background: #fff9f0; border-left: 6px solid var(--accent); padding: 10px; border-radius: 12px; margin-bottom: 20px; display: flex; align-items: center; gap: 15px; }
+        #status-container { background: #fff9f0; border-left: 6px solid var(--accent); padding: 20px; border-radius: 12px; margin-bottom: 20px; display: flex; align-items: center; gap: 15px; }
         .spinner { width: 30px; height: 30px; border: 3px solid rgba(230, 126, 34, 0.2); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; display: none; }
 
         #chat-box { height: 250px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; overflow-y: auto; padding: 20px; margin-bottom: 20px; display: flex; flex-direction: column; gap: 12px; }
@@ -192,7 +192,7 @@
             <button class="secondary" onclick="enviarValoracion()">Enviar Valoración</button>
         </div>
 
-        <div style="display: flex; gap: 10px; margin-bottom: 15px; align-items: center;">
+        <div style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center;">
             <button class="btn-adjunto" onclick="document.getElementById('input-imagen-chat').click()" title="Enviar Imagen">📎</button>
             <input type="file" id="input-imagen-chat" accept="image/*" class="hidden" onchange="enviarImagenChat(this)" disabled>
             <input type="text" id="mensaje-input" placeholder="Chat bloqueado..." onkeypress="handleKeyPress(event)" disabled style="margin:0; flex-grow: 1;">
