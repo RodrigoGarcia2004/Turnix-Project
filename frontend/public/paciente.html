@@ -73,7 +73,8 @@
             transform: scale(1.05);
         }
 
-
+        .btn-volver { position: absolute; top: 20px; left: 20px; display: flex; align-items: center; gap: 8px; color: var(--gray-dark); text-decoration: none; font-weight: 600; font-size: 14px; transition: color 0.3s ease; }
+        .btn-volver:hover { color: var(--primary); }
 
 
         #chat-box { height: 250px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; overflow-y: auto; padding: 20px; margin-bottom: 20px; display: flex; flex-direction: column; gap: 12px; }
@@ -102,7 +103,7 @@
     </style>
 </head>
 <body>
-
+    <a href="acceso.html" class="btn-volver">← Volver al inicio</a>
     <!-- LOGIN -->
     <div class="wrapper" id="login-screen">
         <div class="card">
