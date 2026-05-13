@@ -438,21 +438,16 @@
         }
 
         const fmt = (s) => s ? new Date(s).toLocaleString('es-ES', {
-            day: '2-digit', 
-            month: '2-digit', 
-            year: 'numeric', 
-            hour: '2-digit', 
-            minute: '2-digit'
+            day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
         }) : '—';
 
         cont.innerHTML = turnos.map(t => {
-            // === Estado con color y texto mejorado ===
             let estadoColor = '#94a3b8';
-            let estadoTexto = t.estado || 'DESCONOCIDO';
+            let estadoTexto = t.estado;
 
             if (t.estado === 'COMPLETADO' || t.estado === 'ATENDIDO') {
                 estadoColor = '#10b981';
-                estadoTexto = 'FINALIZADA';
+                estadoTexto = 'ATENDIDO';
             } else if (t.estado === 'EN_CONSULTA') {
                 estadoColor = '#3b82f6';
                 estadoTexto = 'EN CONSULTA';
@@ -464,6 +459,7 @@
                 estadoTexto = 'CANCELADO';
             }
 
+            // Mostrar nombre del médico si existe, si no "Sin asignar"
             const medico = t.medico_nombre || t.medico_usuario || 'Sin asignar';
             const especialidad = t.medico_especialidad ? ` · ${t.medico_especialidad}` : '';
 
@@ -481,8 +477,8 @@
                             📅 <strong>Fecha:</strong> ${fmt(t.fecha)}<br>
                             👨‍⚕️ <strong>Médico:</strong> ${medico}${especialidad}<br>
                             
-                            ${t.fecha_inicio_consulta ? `🕐 <strong>Inicio consulta:</strong> ${fmt(t.fecha_inicio_consulta)}<br>` : ''}
-                            ${t.fecha_fin_consulta ? `✅ <strong>Fin consulta:</strong> ${fmt(t.fecha_fin_consulta)}` : ''}
+                            ${t.fecha_inicio_consulta ? `🕐 <strong>Inicio:</strong> ${fmt(t.fecha_inicio_consulta)}<br>` : ''}
+                            ${t.fecha_fin_consulta ? `✅ <strong>Fin:</strong> ${fmt(t.fecha_fin_consulta)}` : ''}
                         </div>
                     </div>
                     
