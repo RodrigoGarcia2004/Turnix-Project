@@ -456,7 +456,6 @@ async def historial_paciente(usuario: str):
 # ----------------------------------------------------------------------
 @api.get("/justificante/{turno_id}")
 async def justificante_pdf(turno_id: int, user_id: int):
-    """Genera un PDF justificante. Solo el dueno del turno puede descargarlo."""
     async with app.state.pool.acquire() as conn:
         turno = await conn.fetchrow(
             """SELECT t.id, t.numero_turno, t.cliente, t.estado::text AS estado,
@@ -467,10 +466,11 @@ async def justificante_pdf(turno_id: int, user_id: int):
                       m.nombre_completo AS medico_nombre, m.usuario AS medico_usuario,
                       m.especialidad AS medico_especialidad
                  FROM turnos t
-                 LEFT JOIN usuarios p ON p.id=t.id_paciente
-                 LEFT JOIN usuarios m ON m.id=t.atendido_por
-                WHERE t.id=$1""", turno_id,
+                 LEFT JOIN usuarios p ON p.id = t.id_paciente
+                 LEFT JOIN usuarios m ON m.id = t.atendido_por
+                WHERE t.id = $1""", turno_id,
         )
+
     if not turno:
         raise HTTPException(404, "Turno no encontrado")
     if turno["id_paciente"] != user_id:
@@ -479,12 +479,14 @@ async def justificante_pdf(turno_id: int, user_id: int):
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=2*cm, rightMargin=2*cm,
                             topMargin=2*cm, bottomMargin=2*cm)
+
     styles = getSampleStyleSheet()
     h1 = ParagraphStyle("h1", parent=styles["Heading1"], textColor=colors.HexColor("#1E88E5"),
-                        alignment=1, fontSize=22, spaceAfter=6)
-    sub = ParagraphStyle("sub", parent=styles["Normal"], alignment=1, textColor=colors.grey,
-                         fontSize=10, spaceAfter=18)
-    story: List[Any] = []
+                        alignment=1, fontSize=24, spaceAfter=6, fontName="Helvetica-Bold")
+    sub = ParagraphStyle("sub", parent=styles["Normal"], alignment=1, textColor=colors.HexColor("#64748b"),
+                         fontSize=11, spaceAfter=25)
+
+    story = []
     story.append(Paragraph("🏥 TURNIX SALUD", h1))
     story.append(Paragraph("Justificante oficial de consulta médica", sub))
 
@@ -493,9 +495,10 @@ async def justificante_pdf(turno_id: int, user_id: int):
         if isinstance(dt, str): return dt
         return dt.strftime("%d/%m/%Y %H:%M")
 
+    # Datos mejorados
     data = [
         ["Número de turno", f"#{turno['numero_turno']}"],
-        ["Paciente", turno["paciente_nombre"] or turno["paciente_usuario"] or turno["cliente"]],
+        ["Paciente", turno["paciente_nombre"] or turno["paciente_usuario"]],
         ["Usuario", turno["paciente_usuario"] or "—"],
         ["Email", turno["paciente_email"] or "—"],
         ["Fecha de solicitud", fmt(turno["fecha"])],
@@ -505,31 +508,32 @@ async def justificante_pdf(turno_id: int, user_id: int):
         ["Médico", turno["medico_nombre"] or turno["medico_usuario"] or "Sin asignar"],
         ["Especialidad", turno["medico_especialidad"] or "—"],
     ]
-    t = Table(data, colWidths=[5.5*cm, 10.5*cm])
+
+    t = Table(data, colWidths=[5.5*cm, 11*cm])
     t.setStyle(TableStyle([
-        ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#E0F2F1")),
-        ("TEXTCOLOR", (0,0), (0,-1), colors.HexColor("#0F4C5C")),
-        ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
-        ("FONTNAME", (1,0), (1,-1), "Helvetica"),
-        ("FONTSIZE", (0,0), (-1,-1), 10),
-        ("ROWBACKGROUNDS", (1,0), (1,-1), [colors.white, colors.HexColor("#F8FAFB")]),
-        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-        ("LINEBELOW", (0,0), (-1,-1), 0.3, colors.lightgrey),
-        ("LEFTPADDING", (0,0), (-1,-1), 8),
-        ("RIGHTPADDING", (0,0), (-1,-1), 8),
-        ("TOPPADDING", (0,0), (-1,-1), 8),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 8),
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#E0F2F1")),
+        ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#0F4C5C")),
+        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTNAME", (1, 0), (1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), 11),
+        ("ROWBACKGROUNDS", (1, 0), (1, -1), [colors.white, colors.HexColor("#F8FAFB")]),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 9),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
     ]))
     story.append(t)
 
     if turno["notas_medico"]:
-        story.append(Spacer(1, 18))
+        story.append(Spacer(1, 20))
         story.append(Paragraph("<b>Observaciones del médico</b>", styles["Heading3"]))
         story.append(Paragraph(turno["notas_medico"], styles["BodyText"]))
 
-    story.append(Spacer(1, 30))
-    pie = ParagraphStyle("pie", parent=styles["Normal"], textColor=colors.grey,
-                         fontSize=8, alignment=1)
+    story.append(Spacer(1, 35))
+    pie = ParagraphStyle("pie", parent=styles["Normal"], textColor=colors.HexColor("#64748b"),
+                         fontSize=9, alignment=1)
     story.append(Paragraph(
         f"Documento generado automáticamente el {datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')}<br/>"
         f"Sistema Turnix Salud · Verificación: TURNIX-{turno['id']:08d}", pie))
