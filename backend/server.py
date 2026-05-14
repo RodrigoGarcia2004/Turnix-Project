@@ -1013,16 +1013,30 @@ async def handle_message(ws: WebSocket, message: str):
         nombre_paciente = message[len("INICIAR_CONSULTA_MANUAL:"):].strip()
         medico = get_user(ws)
         nombre_medico = medico["usuario"] if medico else "Médico"
-        for c in all_clients:   
+        if medico:
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """UPDATE turnos 
+                       SET atendido_por = $1,
+                           estado = 'EN_CONSULTA'::estado_turno,
+                           fecha_inicio_consulta = NOW()
+                       WHERE id_paciente = (
+                           SELECT id FROM usuarios WHERE usuario = $2
+                       ) AND estado IN ('EN_ESPERA', 'EN_CONSULTA')
+                       ORDER BY id DESC LIMIT 1""",
+                    medico["id"], nombre_paciente
+                )
+        
+        for c in all_clients:
             u = get_user(c)
             if u and u["usuario"] == nombre_paciente:
                 await safe_send(c, "SISTEMA: LLAMADA_A_CONSULTA")
-                await safe_send(c, f"COMANDO:ENTRAR_CONSULTA:{nombre_medico}")
-                # Sacar al paciente de la cola si estaba
+                await safe_send(c, f"COMANDO:ENTRAR_CONSULTA:{medico['usuario'] if medico else 'Médico'}")
                 if c in cola_espera:
                     cola_espera.remove(c)
                     await actualizar_posiciones_cola()
                 break
+        
         await safe_send(ws, f"CHAT_DE_PACIENTE: 🟢 Has iniciado la consulta con {nombre_paciente}")
         return
 
@@ -1075,20 +1089,22 @@ async def handle_message(ws: WebSocket, message: str):
         medico = get_user(ws)
         nombre_medico = medico["usuario"] if medico else "Médico"
         # Marcar como COMPLETADO el turno mas antiguo EN_ESPERA o EN_CONSULTA
-        try:
-            async with pool.acquire() as conn:
-                await conn.execute(
-                    """UPDATE turnos SET estado='COMPLETADO'::estado_turno,
-                                          fecha_fin_consulta=NOW()
-                       WHERE id = (SELECT id FROM turnos
-                                    WHERE estado IN ('EN_ESPERA','EN_CONSULTA')
-                                    ORDER BY id ASC LIMIT 1)"""
-                )
-        except Exception:
-            log.exception("Finalizar consulta fallo")
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """UPDATE turnos 
+                   SET estado = 'COMPLETADO'::estado_turno,
+                       fecha_fin_consulta = NOW()
+                   WHERE id = (
+                       SELECT id FROM turnos 
+                       WHERE estado IN ('EN_ESPERA','EN_CONSULTA') 
+                       ORDER BY id ASC LIMIT 1
+                   )"""
+            )
+        
         for c in all_clients:
             await safe_send(c, "SISTEMA: El médico ha finalizado la consulta.")
-            await safe_send(c, f"COMANDO:CONSULTA_FINALIZADA:{nombre_medico}")
+            await safe_send(c, f"COMANDO:CONSULTA_FINALIZADA:{medico['usuario'] if medico else 'Médico'}")
+        
         return
 
     # ==================== ATENDER SIGUIENTE (admin) ====================
