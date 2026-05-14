@@ -1044,12 +1044,19 @@ async def handle_message(ws: WebSocket, message: str):
     if message.startswith("CHAT_PRIVADO:"):
         partes = message.split(":", 2)
         if len(partes) >= 3:
-            destino, texto = partes[1], partes[2]
+            destino = partes[1].strip()
+            texto = partes[2].strip()
+            
+            medico = get_user(ws)
+            medico_nombre = display_name(medico) if medico else "Médico"
+            
             for c in all_clients:
                 u = get_user(c)
                 if u:
-                    n = display_name(u)
-                    if n == destino or u["usuario"] == destino:
+                    # Buscar por usuario o por nombre completo
+                    if (u["usuario"] == destino or 
+                        (u.get("nombre_completo") and u["nombre_completo"] == destino)):
+                        
                         await safe_send(c, f"MEDICO_DICE:{texto}")
                         break
         return
