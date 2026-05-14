@@ -478,37 +478,30 @@ async def justificante_pdf(turno_id: int, user_id: int):
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=2*cm, rightMargin=2*cm,
-                            topMargin=1.5*cm, bottomMargin=1.5*cm)
+                            topMargin=1.8*cm, bottomMargin=1.8*cm)
 
     styles = getSampleStyleSheet()
 
-    # Estilos mejorados
     titulo = ParagraphStyle("titulo", parent=styles["Heading1"], 
                             textColor=colors.HexColor("#1E88E5"),
-                            alignment=1, fontSize=26, spaceAfter=4, fontName="Helvetica-Bold")
+                            alignment=1, fontSize=28, spaceAfter=6, fontName="Helvetica-Bold")
     
     subtitulo = ParagraphStyle("subtitulo", parent=styles["Normal"], 
                                textColor=colors.HexColor("#64748b"),
-                               alignment=1, fontSize=12, spaceAfter=20)
-
-    normal = ParagraphStyle("normal", parent=styles["Normal"], 
-                            fontSize=11, leading=16)
+                               alignment=1, fontSize=13, spaceAfter=25)
 
     story = []
 
-    # Encabezado
+    # Encabezado bonito
     story.append(Paragraph("🏥 TURNIX SALUD", titulo))
     story.append(Paragraph("Justificante oficial de consulta médica", subtitulo))
-
-    # Línea separadora
-    story.append(Spacer(1, 10))
 
     def fmt(dt):
         if not dt: return "—"
         if isinstance(dt, str): return dt
         return dt.strftime("%d/%m/%Y %H:%M")
 
-    # Datos del justificante
+    # Tabla de datos
     data = [
         ["Número de turno", f"#{turno['numero_turno']}"],
         ["Paciente", turno["paciente_nombre"] or turno["paciente_usuario"]],
@@ -526,33 +519,32 @@ async def justificante_pdf(turno_id: int, user_id: int):
         ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#E0F2F1")),
         ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#0F4C5C")),
         ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-        ("FONTNAME", (1, 0), (1, -1), "Helvetica"),
         ("FONTSIZE", (0, 0), (-1, -1), 11),
         ("ROWBACKGROUNDS", (1, 0), (1, -1), [colors.white, colors.HexColor("#F8FAFB")]),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LINEBELOW", (0, 0), (-1, -1), 0.6, colors.HexColor("#CBD5E1")),
-        ("LEFTPADDING", (0, 0), (-1, -1), 12),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
-        ("TOPPADDING", (0, 0), (-1, -1), 10),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.7, colors.HexColor("#CBD5E1")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 14),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 14),
+        ("TOPPADDING", (0, 0), (-1, -1), 11),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 11),
     ]))
     story.append(t)
 
-    # Observaciones del médico (si existen)
+    # Observaciones
     if turno["notas_medico"]:
-        story.append(Spacer(1, 25))
+        story.append(Spacer(1, 30))
         story.append(Paragraph("<b>Observaciones del médico</b>", styles["Heading3"]))
-        story.append(Paragraph(turno["notas_medico"], normal))
+        story.append(Paragraph(turno["notas_medico"], styles["Normal"]))
 
-    # Pie de página
-    story.append(Spacer(1, 40))
+    # Pie
+    story.append(Spacer(1, 45))
     pie = ParagraphStyle("pie", parent=styles["Normal"], 
                          textColor=colors.HexColor("#64748b"),
-                         fontSize=9, alignment=1, leading=13)
+                         fontSize=9, alignment=1, leading=14)
     
     story.append(Paragraph(
-        f"Documento generado automáticamente el {datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')}<br/>"
-        f"Sistema Turnix Salud · Verificación: TURNIX-{turno['id']:08d}", pie))
+        f"Documento generado el {datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')}<br/>"
+        f"Turnix Salud · Verificación: TURNIX-{turno['id']:08d}", pie))
 
     doc.build(story)
     buf.seek(0)
