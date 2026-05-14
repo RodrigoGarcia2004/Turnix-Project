@@ -478,28 +478,40 @@ async def justificante_pdf(turno_id: int, user_id: int):
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=2*cm, rightMargin=2*cm,
-                            topMargin=2*cm, bottomMargin=2*cm)
+                            topMargin=1.5*cm, bottomMargin=1.5*cm)
 
     styles = getSampleStyleSheet()
-    h1 = ParagraphStyle("h1", parent=styles["Heading1"], textColor=colors.HexColor("#1E88E5"),
-                        alignment=1, fontSize=24, spaceAfter=6, fontName="Helvetica-Bold")
-    sub = ParagraphStyle("sub", parent=styles["Normal"], alignment=1, textColor=colors.HexColor("#64748b"),
-                         fontSize=11, spaceAfter=25)
+
+    # Estilos mejorados
+    titulo = ParagraphStyle("titulo", parent=styles["Heading1"], 
+                            textColor=colors.HexColor("#1E88E5"),
+                            alignment=1, fontSize=26, spaceAfter=4, fontName="Helvetica-Bold")
+    
+    subtitulo = ParagraphStyle("subtitulo", parent=styles["Normal"], 
+                               textColor=colors.HexColor("#64748b"),
+                               alignment=1, fontSize=12, spaceAfter=20)
+
+    normal = ParagraphStyle("normal", parent=styles["Normal"], 
+                            fontSize=11, leading=16)
 
     story = []
-    story.append(Paragraph("🏥 TURNIX SALUD", h1))
-    story.append(Paragraph("Justificante oficial de consulta médica", sub))
+
+    # Encabezado
+    story.append(Paragraph("🏥 TURNIX SALUD", titulo))
+    story.append(Paragraph("Justificante oficial de consulta médica", subtitulo))
+
+    # Línea separadora
+    story.append(Spacer(1, 10))
 
     def fmt(dt):
         if not dt: return "—"
         if isinstance(dt, str): return dt
         return dt.strftime("%d/%m/%Y %H:%M")
 
-    # Datos mejorados
+    # Datos del justificante
     data = [
         ["Número de turno", f"#{turno['numero_turno']}"],
         ["Paciente", turno["paciente_nombre"] or turno["paciente_usuario"]],
-        ["Usuario", turno["paciente_usuario"] or "—"],
         ["Email", turno["paciente_email"] or "—"],
         ["Fecha de solicitud", fmt(turno["fecha"])],
         ["Inicio de consulta", fmt(turno["fecha_inicio_consulta"])],
@@ -518,28 +530,33 @@ async def justificante_pdf(turno_id: int, user_id: int):
         ("FONTSIZE", (0, 0), (-1, -1), 11),
         ("ROWBACKGROUNDS", (1, 0), (1, -1), [colors.white, colors.HexColor("#F8FAFB")]),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
-        ("LEFTPADDING", (0, 0), (-1, -1), 10),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-        ("TOPPADDING", (0, 0), (-1, -1), 9),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.6, colors.HexColor("#CBD5E1")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
     ]))
     story.append(t)
 
+    # Observaciones del médico (si existen)
     if turno["notas_medico"]:
-        story.append(Spacer(1, 20))
+        story.append(Spacer(1, 25))
         story.append(Paragraph("<b>Observaciones del médico</b>", styles["Heading3"]))
-        story.append(Paragraph(turno["notas_medico"], styles["BodyText"]))
+        story.append(Paragraph(turno["notas_medico"], normal))
 
-    story.append(Spacer(1, 35))
-    pie = ParagraphStyle("pie", parent=styles["Normal"], textColor=colors.HexColor("#64748b"),
-                         fontSize=9, alignment=1)
+    # Pie de página
+    story.append(Spacer(1, 40))
+    pie = ParagraphStyle("pie", parent=styles["Normal"], 
+                         textColor=colors.HexColor("#64748b"),
+                         fontSize=9, alignment=1, leading=13)
+    
     story.append(Paragraph(
         f"Documento generado automáticamente el {datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')}<br/>"
         f"Sistema Turnix Salud · Verificación: TURNIX-{turno['id']:08d}", pie))
 
     doc.build(story)
     buf.seek(0)
+    
     return StreamingResponse(
         buf, media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="justificante_turno_{turno["numero_turno"]}.pdf"'},
