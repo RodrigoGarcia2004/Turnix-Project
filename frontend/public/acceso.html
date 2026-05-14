@@ -443,7 +443,7 @@
 
         cont.innerHTML = turnos.map(t => {
             let estadoColor = '#94a3b8';
-            let estadoTexto = t.estado;
+            let estadoTexto = t.estado || 'DESCONOCIDO';
 
             if (t.estado === 'COMPLETADO' || t.estado === 'ATENDIDO') {
                 estadoColor = '#10b981';
@@ -459,7 +459,6 @@
                 estadoTexto = 'CANCELADO';
             }
 
-            // Mostrar nombre del médico si existe, si no "Sin asignar"
             const medico = t.medico_nombre || t.medico_usuario || 'Sin asignar';
             const especialidad = t.medico_especialidad ? ` · ${t.medico_especialidad}` : '';
 
