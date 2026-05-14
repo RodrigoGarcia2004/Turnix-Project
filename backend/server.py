@@ -1009,34 +1009,20 @@ async def handle_message(ws: WebSocket, message: str):
         return
 
     # ==================== INICIAR CONSULTA MANUAL (desde boton "Atender") ====================
-        if message.startswith("INICIAR_CONSULTA_MANUAL:"):
-            nombre_paciente = message[len("INICIAR_CONSULTA_MANUAL:"):].strip()
-            medico = get_user(ws)
-        
-        if medico:
-            async with pool.acquire() as conn:
-                await conn.execute(
-                    """UPDATE turnos 
-                       SET atendido_por = $1,
-                           estado = 'EN_CONSULTA'::estado_turno,
-                           fecha_inicio_consulta = NOW()
-                       WHERE id_paciente = (
-                           SELECT id FROM usuarios WHERE usuario = $2
-                       ) AND estado IN ('EN_ESPERA', 'EN_CONSULTA')
-                       ORDER BY id DESC LIMIT 1""",
-                    medico["id"], nombre_paciente
-                )
-        
-        for c in all_clients:
+    if message.startswith("INICIAR_CONSULTA_MANUAL:"):
+        nombre_paciente = message[len("INICIAR_CONSULTA_MANUAL:"):].strip()
+        medico = get_user(ws)
+        nombre_medico = medico["usuario"] if medico else "Médico"
+        for c in all_clients:   
             u = get_user(c)
             if u and u["usuario"] == nombre_paciente:
                 await safe_send(c, "SISTEMA: LLAMADA_A_CONSULTA")
-                await safe_send(c, f"COMANDO:ENTRAR_CONSULTA:{medico['usuario'] if medico else 'Médico'}")
+                await safe_send(c, f"COMANDO:ENTRAR_CONSULTA:{nombre_medico}")
+                # Sacar al paciente de la cola si estaba
                 if c in cola_espera:
                     cola_espera.remove(c)
                     await actualizar_posiciones_cola()
                 break
-        
         await safe_send(ws, f"CHAT_DE_PACIENTE: 🟢 Has iniciado la consulta con {nombre_paciente}")
         return
 
@@ -1044,19 +1030,12 @@ async def handle_message(ws: WebSocket, message: str):
     if message.startswith("CHAT_PRIVADO:"):
         partes = message.split(":", 2)
         if len(partes) >= 3:
-            destino = partes[1].strip()
-            texto = partes[2].strip()
-            
-            medico = get_user(ws)
-            medico_nombre = display_name(medico) if medico else "Médico"
-            
+            destino, texto = partes[1], partes[2]
             for c in all_clients:
                 u = get_user(c)
                 if u:
-                    # Buscar por usuario o por nombre completo
-                    if (u["usuario"] == destino or 
-                        (u.get("nombre_completo") and u["nombre_completo"] == destino)):
-                        
+                    n = display_name(u)
+                    if n == destino or u["usuario"] == destino:
                         await safe_send(c, f"MEDICO_DICE:{texto}")
                         break
         return
@@ -1089,25 +1068,28 @@ async def handle_message(ws: WebSocket, message: str):
 
     # ==================== FINALIZAR CONSULTA ====================
     if message.startswith("FINALIZAR_CONSULTA:") or message == "FINALIZAR_CONSULTA":
+        if message.startswith("FINALIZAR_CONSULTA:"):
+            nombre_paciente = message[len("FINALIZAR_CONSULTA:"):].strip()
+        else:
+            nombre_paciente = ""
         medico = get_user(ws)
-    
-    async with pool.acquire() as conn:
-        await conn.execute(
-            """UPDATE turnos 
-               SET estado = 'COMPLETADO'::estado_turno,
-                   fecha_fin_consulta = NOW()
-               WHERE id = (
-                   SELECT id FROM turnos 
-                   WHERE estado IN ('EN_ESPERA','EN_CONSULTA') 
-                   ORDER BY id ASC LIMIT 1
-               )"""
-        )
-    
-    for c in all_clients:
-        await safe_send(c, "SISTEMA: El médico ha finalizado la consulta.")
-        await safe_send(c, f"COMANDO:CONSULTA_FINALIZADA:{medico['usuario'] if medico else 'Médico'}")
-    
-    return
+        nombre_medico = medico["usuario"] if medico else "Médico"
+        # Marcar como COMPLETADO el turno mas antiguo EN_ESPERA o EN_CONSULTA
+        try:
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """UPDATE turnos SET estado='COMPLETADO'::estado_turno,
+                                          fecha_fin_consulta=NOW()
+                       WHERE id = (SELECT id FROM turnos
+                                    WHERE estado IN ('EN_ESPERA','EN_CONSULTA')
+                                    ORDER BY id ASC LIMIT 1)"""
+                )
+        except Exception:
+            log.exception("Finalizar consulta fallo")
+        for c in all_clients:
+            await safe_send(c, "SISTEMA: El médico ha finalizado la consulta.")
+            await safe_send(c, f"COMANDO:CONSULTA_FINALIZADA:{nombre_medico}")
+        return
 
     # ==================== ATENDER SIGUIENTE (admin) ====================
     if message == "ATENDER_SIGUIENTE":
