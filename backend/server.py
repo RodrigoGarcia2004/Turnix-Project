@@ -1010,9 +1010,9 @@ async def handle_message(ws: WebSocket, message: str):
 
     # ==================== INICIAR CONSULTA MANUAL (desde boton "Atender") ====================
         if message.startswith("INICIAR_CONSULTA_MANUAL:"):
-        nombre_paciente = message[len("INICIAR_CONSULTA_MANUAL:"):].strip()
-        medico = get_user(ws)
-        nombre_medico = medico["usuario"] if medico else "Médico"
+            nombre_paciente = message[len("INICIAR_CONSULTA_MANUAL:"):].strip()
+            medico = get_user(ws)
+            nombre_medico = medico["usuario"] if medico else "Médico"
 
         if medico:
             async with pool.acquire() as conn:
