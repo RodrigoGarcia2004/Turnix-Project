@@ -5,6 +5,8 @@ server:
 spring:
   application:
     name: turnix-gateway
+  main:
+    web-application-type: reactive
   cloud:
     gateway:
       default-filters:
@@ -29,11 +31,13 @@ spring:
           predicates:
             - Path=/ws/**
 
-        # ===== Frontend estatico (HTML, CSS, JS, imagenes) =====
+        # ===== Frontend estatico (paginas HTML, CSS, JS, imagenes) =====
+        # OJO: /worker/** se EXCLUYE deliberadamente de aqui para que lo
+        # gestione WorkerStatsController localmente.
         - id: turnix-frontend
           uri: ${BACKEND_URL:http://localhost:8001}
           predicates:
-            - Path=/**
+            - Path=/, /index.html, /acceso.html, /admin.html, /paciente.html, /medico.html, /aviso-legal.html, /turnix-theme.css, /turnix-theme.js, /turnix-logo.png, /favicon.ico, /static/**, /uploads/**
 
 management:
   endpoints:
@@ -53,7 +57,14 @@ info:
     description: Puerta de entrada del sistema Turnix Salud
     version: 1.0.0
 
+# ===== Configuracion del worker programado =====
+worker:
+  healthcheck:
+    interval-ms: 15000
+    initial-delay-ms: 5000
+
 logging:
   level:
     root: INFO
     org.springframework.cloud.gateway: INFO
+    com.turnix.gateway: INFO
