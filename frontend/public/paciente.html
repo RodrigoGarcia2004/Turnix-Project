@@ -229,6 +229,22 @@
         </div>
 
         <button id="btn-turno" onclick="pedirTurno()" class="secondary">🎫 Solicitar Turno de Atención</button>
+
+        <!-- ====== RECETAS MÉDICAS ====== -->
+        <div id="recetas-section" style="margin-top: 22px; border-top: 2px solid #eef2f7; padding-top: 18px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 12px;">
+                <h3 style="margin:0; color: var(--primary); font-size: 18px;">📋 Mis Recetas</h3>
+                <button onclick="cargarRecetasPaciente()" data-testid="btn-recargar-recetas"
+                        style="width:auto; padding:8px 14px; font-size:13px; background:#0d9488; box-shadow:none;">
+                    🔄 Actualizar
+                </button>
+            </div>
+            <div id="recetas-list" data-testid="recetas-list" style="display:flex; flex-direction:column; gap:10px;">
+                <div id="recetas-vacio" style="color:#64748b; font-size:14px; text-align:center; padding:18px; background:#f8fafc; border-radius:12px; border:1px dashed #cbd5e1;">
+                    Aún no tienes recetas. Cuando un médico te emita una, aparecerá aquí para descargarla en PDF.
+                </div>
+            </div>
+        </div>
     </div>
 
     <div id="modal-llamada" class="modal hidden">
@@ -304,6 +320,20 @@
                 myUserId = partes[3] ? parseInt(partes[3], 10) : null;
                 myUserName = partes[4] || partes[2] || "";
                 cargarFotoPerfilPaciente();
+                cargarRecetasPaciente();
+                return;
+            }
+
+            // RECETA NUEVA emitida por médico
+            if (data.startsWith("RECETA_NUEVA:")) {
+                const nombre = data.substring("RECETA_NUEVA:".length);
+                pintarAlertaSistema("📋 Nueva receta recibida: " + nombre);
+                cargarRecetasPaciente();
+                return;
+            }
+            if (data.startsWith("SISTEMA:RECETA_GENERADA:")) {
+                pintarAlertaSistema("📋 Nueva receta disponible para descargar.");
+                cargarRecetasPaciente();
                 return;
             }
 
@@ -780,6 +810,73 @@
         }
 
         function handleKeyPress(e) { if (e.key === 'Enter') enviarAlMedico(); }
+
+        // ============== RECETAS MÉDICAS ==============
+        async function cargarRecetasPaciente() {
+            if (!myUserId) return;
+            const list = document.getElementById('recetas-list');
+            try {
+                const r = await fetch('/api/recetas/paciente/' + myUserId);
+                if (!r.ok) {
+                    console.warn('No se pudieron cargar recetas:', r.status);
+                    return;
+                }
+                const recetas = await r.json();
+                if (!Array.isArray(recetas) || recetas.length === 0) {
+                    list.innerHTML = `
+                        <div id="recetas-vacio" style="color:#64748b; font-size:14px; text-align:center; padding:18px; background:#f8fafc; border-radius:12px; border:1px dashed #cbd5e1;">
+                            Aún no tienes recetas. Cuando un médico te emita una, aparecerá aquí para descargarla en PDF.
+                        </div>`;
+                    return;
+                }
+                list.innerHTML = recetas.map(rx => {
+                    const fecha = rx.fecha_emision ? new Date(rx.fecha_emision).toLocaleString('es-ES', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'}) : '—';
+                    const medico = rx.medico_nombre || rx.medico_usuario || 'Médico';
+                    const espec = rx.medico_especialidad ? ` · ${rx.medico_especialidad}` : '';
+                    const nombre = (rx.nombre_receta || 'Receta').replace(/</g, '&lt;');
+                    const motivo = (rx.motivo || '').replace(/</g, '&lt;');
+                    return `
+                    <div data-testid="receta-card" style="background:white; border:1px solid #e2e8f0; border-radius:14px; padding:14px 16px; box-shadow:0 2px 6px rgba(15,23,42,0.04); display:flex; gap:14px; align-items:center; justify-content:space-between;">
+                        <div style="flex:1; min-width:0;">
+                            <div style="font-weight:700; color:#0f172a; font-size:15px; margin-bottom:4px;">📋 ${nombre}</div>
+                            <div style="color:#475569; font-size:13px; margin-bottom:3px;"><b>Médico:</b> ${medico}${espec}</div>
+                            <div style="color:#64748b; font-size:12px; margin-bottom:3px;">📅 ${fecha} · RX-${String(rx.id).padStart(8,'0')}</div>
+                            ${motivo ? `<div style="color:#64748b; font-size:12px; margin-top:3px;"><i>${motivo}</i></div>` : ''}
+                        </div>
+                        <button data-testid="btn-descargar-receta-${rx.id}" onclick="descargarRecetaPDF(${rx.id})"
+                                style="width:auto; padding:10px 16px; background:var(--secondary); font-size:13px; white-space:nowrap; box-shadow:0 4px 10px rgba(46,204,113,0.25);">
+                            ⬇️ Descargar PDF
+                        </button>
+                    </div>`;
+                }).join('');
+            } catch (e) {
+                console.error('Error cargando recetas:', e);
+            }
+        }
+
+        async function descargarRecetaPDF(recetaId) {
+            if (!myUserId) { alert('Sesión no válida.'); return; }
+            try {
+                const r = await fetch(`/api/recetas/${recetaId}/pdf?user_id=${myUserId}`);
+                if (!r.ok) {
+                    let detalle = 'Error ' + r.status;
+                    try { const j = await r.json(); detalle = j.detail || detalle; } catch(_) {}
+                    alert('No se pudo descargar la receta: ' + detalle);
+                    return;
+                }
+                const blob = await r.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `receta_${recetaId}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 5000);
+            } catch (e) {
+                alert('Error de red descargando la receta: ' + e.message);
+            }
+        }
 </script>
     <script src="turnix-theme.js"></script>
 </body>

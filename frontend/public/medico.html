@@ -310,13 +310,13 @@
                 </div>
                 
                 <div style="margin-bottom:24px;">
-                    <label style="font-weight:700; font-size:13px; display:block; margin-bottom:6px;">Firma del médico (dibuja con el ratón)</label>
+                    <label style="font-weight:700; font-size:13px; display:block; margin-bottom:6px;">Firma del médico (dibuja con el ratón) <span style="color:#dc2626;">*</span></label>
                     <div style="border:1px solid #ccc; border-radius:10px; background:#fafafa; overflow:hidden; touch-action:none;">
                         <canvas id="firma-canvas" data-testid="firma-canvas" width="520" height="160"
-                                style="display:block; width:100%; height:160px; background:#ffffff; cursor:crosshair;"></canvas>
+                                style="display:block; width:100%; height:160px; background:#ffffff; cursor:crosshair; touch-action:none;"></canvas>
                     </div>
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
-                        <small id="firma-hint" style="color:#64748b;">Mantén pulsado el botón izquierdo y dibuja tu firma.</small>
+                        <small id="firma-hint" style="color:#64748b;">Mantén pulsado el botón izquierdo y dibuja tu firma. La firma es obligatoria.</small>
                         <button type="button" onclick="limpiarFirma()" data-testid="limpiar-firma"
                                 style="background:none; border:1px solid #cbd5e1; color:#475569; font-size:12px; padding:6px 12px; border-radius:8px; cursor:pointer; font-weight:600;">
                             🧹 Limpiar
@@ -1080,12 +1080,75 @@
 
 let recetaPendiente = null;
 
+// ====== Firma con el ratón (canvas) ======
+const firmaCanvas = document.getElementById('firma-canvas');
+const firmaCtx = firmaCanvas.getContext('2d');
+let firmaDibujando = false;
+let firmaTieneTrazo = false;
+
+function _firmaSetup() {
+    firmaCtx.fillStyle = '#ffffff';
+    firmaCtx.fillRect(0, 0, firmaCanvas.width, firmaCanvas.height);
+    firmaCtx.strokeStyle = '#0f172a';
+    firmaCtx.lineWidth = 2.4;
+    firmaCtx.lineCap = 'round';
+    firmaCtx.lineJoin = 'round';
+}
+_firmaSetup();
+
+function _firmaPos(evt) {
+    const rect = firmaCanvas.getBoundingClientRect();
+    const scaleX = firmaCanvas.width / rect.width;
+    const scaleY = firmaCanvas.height / rect.height;
+    const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+    const clientY = evt.touches ? evt.touches[0].clientY : evt.clientY;
+    return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+}
+
+function _firmaStart(evt) {
+    evt.preventDefault();
+    firmaDibujando = true;
+    const p = _firmaPos(evt);
+    firmaCtx.beginPath();
+    firmaCtx.moveTo(p.x, p.y);
+}
+function _firmaMove(evt) {
+    if (!firmaDibujando) return;
+    evt.preventDefault();
+    const p = _firmaPos(evt);
+    firmaCtx.lineTo(p.x, p.y);
+    firmaCtx.stroke();
+    firmaTieneTrazo = true;
+}
+function _firmaEnd(evt) {
+    if (!firmaDibujando) return;
+    if (evt) evt.preventDefault();
+    firmaDibujando = false;
+    firmaCtx.closePath();
+}
+
+firmaCanvas.addEventListener('mousedown', _firmaStart);
+firmaCanvas.addEventListener('mousemove', _firmaMove);
+window.addEventListener('mouseup', _firmaEnd);
+firmaCanvas.addEventListener('mouseleave', _firmaEnd);
+firmaCanvas.addEventListener('touchstart', _firmaStart, { passive: false });
+firmaCanvas.addEventListener('touchmove', _firmaMove, { passive: false });
+firmaCanvas.addEventListener('touchend', _firmaEnd);
+
+function limpiarFirma() {
+    _firmaSetup();
+    firmaTieneTrazo = false;
+    const hint = document.getElementById('firma-hint');
+    if (hint) { hint.style.color = '#64748b'; hint.textContent = 'Mantén pulsado el botón izquierdo y dibuja tu firma. La firma es obligatoria.'; }
+}
+
 function abrirModalReceta() {
     if (!pacienteActual) {
         alert("Primero abre una consulta con un paciente.");
         return;
     }
     document.getElementById('modal-receta').style.display = 'flex';
+    limpiarFirma();
 }
 
 function cerrarModalReceta() {
@@ -1095,6 +1158,16 @@ function cerrarModalReceta() {
 // Cuando se envía el formulario de receta
 document.getElementById('form-receta').addEventListener('submit', function(e) {
     e.preventDefault();
+
+    // Validación: firma obligatoria
+    if (!firmaTieneTrazo) {
+        const hint = document.getElementById('firma-hint');
+        if (hint) { hint.style.color = '#dc2626'; hint.textContent = '⚠️ La firma es obligatoria. Dibuja tu firma con el ratón.'; }
+        alert("Por favor, firma la receta con el ratón antes de continuar.");
+        return;
+    }
+
+    const firmaDataURL = firmaCanvas.toDataURL('image/png');
 
     // Guardamos los datos temporalmente
     recetaPendiente = {
@@ -1107,7 +1180,7 @@ document.getElementById('form-receta').addEventListener('submit', function(e) {
         duracion: document.getElementById('duracion').value,
         motivo: document.getElementById('motivo').value,
         indicaciones: document.getElementById('indicaciones').value || "",
-        firma_base64: document.getElementById('firma').value
+        firma_base64: firmaDataURL
     };
 
     // Cerramos el modal de receta y abrimos el de contraseña
@@ -1153,6 +1226,7 @@ async function confirmarRecetaConPassword() {
             pintarAlertaSistema("✅ ¡Receta generada correctamente!");
             cerrarModalPassword();
             document.getElementById('form-receta').reset();
+            limpiarFirma();
             recetaPendiente = null;
         } else {
             // Error real

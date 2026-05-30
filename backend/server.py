@@ -480,7 +480,7 @@ async def historial_turnos(user_id: int):
                       m.nombre_completo AS medico_nombre,
                       m.usuario AS medico_usuario,
                       m.especialidad AS medico_especialidad,
-                      m.email AS medico_email,
+                      m.correo_electronico AS medico_email,
                       m.rol::text AS medico_rol
                  FROM turnos t
                  LEFT JOIN usuarios m ON m.id = t.atendido_por
@@ -562,9 +562,9 @@ async def justificante_pdf(turno_id: int, user_id: int):
                       t.fecha, t.fecha_inicio_consulta, t.fecha_fin_consulta,
                       t.notas_medico, t.id_paciente, t.tipo_consulta, t.prioridad,
                       p.nombre_completo AS paciente_nombre, p.usuario AS paciente_usuario,
-                      p.email AS paciente_email,
+                      p.correo_electronico AS paciente_email,
                       m.nombre_completo AS medico_nombre, m.usuario AS medico_usuario,
-                      m.especialidad AS medico_especialidad, m.email AS medico_email
+                      m.especialidad AS medico_especialidad, m.correo_electronico AS medico_email
                  FROM turnos t
                  LEFT JOIN usuarios p ON p.id = t.id_paciente
                  LEFT JOIN usuarios m ON m.id = t.atendido_por
@@ -762,6 +762,15 @@ async def recetas_crear(body: RecetaCreate):
                 ORDER BY id DESC LIMIT 1""",
             paciente["id"], body.medico_id,
         )
+        # La tabla 'recetas' tiene un UNIQUE sobre turno_id en la BD: si ya
+        # existe una receta para este turno, dejamos turno_id en NULL para
+        # permitir varias recetas por consulta sin romper la constraint.
+        if turno_id is not None:
+            ya_existe = await conn.fetchval(
+                "SELECT 1 FROM recetas WHERE turno_id=$1 LIMIT 1", turno_id,
+            )
+            if ya_existe:
+                turno_id = None
         row = await conn.fetchrow(
             """INSERT INTO recetas
                 (turno_id, medico_id, paciente_id, nombre_receta, motivo,
@@ -790,7 +799,7 @@ async def recetas_listar_paciente(user_id: int):
                       r.duracion, r.indicaciones, r.fecha_emision, r.turno_id,
                       m.id AS medico_id, m.nombre_completo AS medico_nombre,
                       m.usuario AS medico_usuario, m.especialidad AS medico_especialidad,
-                      m.email AS medico_email
+                      m.correo_electronico AS medico_email
                  FROM recetas r
                  LEFT JOIN usuarios m ON m.id = r.medico_id
                 WHERE r.paciente_id = $1
@@ -808,9 +817,9 @@ async def recetas_pdf(receta_id: int, user_id: int):
                       r.duracion, r.indicaciones, r.firma_base64, r.fecha_emision,
                       r.turno_id, r.paciente_id,
                       p.nombre_completo AS paciente_nombre, p.usuario AS paciente_usuario,
-                      p.email AS paciente_email,
+                      p.correo_electronico AS paciente_email,
                       m.nombre_completo AS medico_nombre, m.usuario AS medico_usuario,
-                      m.especialidad AS medico_especialidad, m.email AS medico_email,
+                      m.especialidad AS medico_especialidad, m.correo_electronico AS medico_email,
                       t.numero_turno
                  FROM recetas r
                  LEFT JOIN usuarios p ON p.id = r.paciente_id
@@ -1397,7 +1406,7 @@ async def admin_spec_list(body: AdminCreds):
             """SELECT s.id, s.medico_id, s.especialidad_actual, s.especialidad_nueva,
                       s.motivo, s.estado, s.fecha_solicitud, s.fecha_resolucion,
                       u.usuario AS medico_usuario, u.nombre_completo AS medico_nombre,
-                      u.email AS medico_email
+                      u.correo_electronico AS medico_email
                  FROM solicitudes_especialidad s
                  JOIN usuarios u ON u.id = s.medico_id
                 ORDER BY (s.estado='PENDIENTE') DESC, s.fecha_solicitud DESC"""
