@@ -1,9 +1,8 @@
 """
 Turnix - Servidor WebSocket en FastAPI
 Porteado fielmente desde el ServidorWeb.java original (proyecto Java de Rodrigo Garcia)
-para poder ejecutarse en el entorno de Emergent (FastAPI/uvicorn en puerto 8001).
+para poder ejecutarse en cualquier entorno con FastAPI/uvicorn (por defecto puerto 8001).
 La conexion a la BD se realiza a Supabase Postgres mediante el connection pooler (IPv4).
-El codigo Java original queda preservado en /app/turnix/source/Turnix como referencia.
 """
 import os
 import logging

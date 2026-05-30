@@ -18,6 +18,10 @@ node_modules/
 
 # Testing
 /coverage
+.pytest_cache/
+test_reports/
+test_result.md
+**/iteration_*.json
 
 # Next.js
 /.next/
@@ -30,8 +34,13 @@ next-env.d.ts
 dist/
 dist
 
-# Environment files (comprehensive coverage)
+# Internal notes / planning
+memory/
 
+# Platform / preview specifics
+.emergent/
+
+# Environment files (comprehensive coverage)
 *token.json*
 *credentials.json*
 
@@ -41,6 +50,7 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 dump.rdb
+*.log
 
 # System files
 .DS_Store
@@ -48,9 +58,14 @@ dump.rdb
 
 # Python
 __pycache__/
-*pyc*
+*.pyc
+*.pyo
 venv/
 .venv/
+
+# Uploads runtime (no subir contenido, solo el placeholder)
+uploads/*
+!uploads/.gitkeep
 
 # Development tools
 chainlit.md
@@ -60,9 +75,6 @@ chainlit.md
 
 # Deployment
 .vercel
-
-# Data and databases
-agenthub/agents/youtube/db
 
 # Archive files and large assets
 **/*.zip
@@ -75,8 +87,6 @@ agenthub/agents/youtube/db
 
 # Build caches
 .cache/
-
-memory/test_credentials.md
 
 # Mobile development
 android-sdk/
