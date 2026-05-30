@@ -907,19 +907,28 @@ async def recetas_pdf(receta_id: int, user_id: int):
 
     # Firma del medico (data URL PNG -> embed)
     firma = r["firma_base64"] or ""
+    firma_added = False
     if firma.startswith("data:image"):
         try:
             import base64 as _b64
+            from PIL import Image as _PILImage
             head, b64data = firma.split(",", 1)
             firma_bytes = _b64.b64decode(b64data)
+            # Verificacion defensiva: si el PNG esta corrupto, lanzara aqui
+            _PILImage.open(io.BytesIO(firma_bytes)).verify()
             firma_io = io.BytesIO(firma_bytes)
             story.append(Spacer(1, 14))
             story.append(Paragraph("Firma del médico:", section))
             firma_img = RLImage(firma_io, width=7*cm, height=3.2*cm)
             firma_img.hAlign = "LEFT"
             story.append(firma_img)
+            firma_added = True
         except Exception:
-            log.exception("No se pudo embedir la firma en el PDF")
+            log.exception("No se pudo embedir la firma en el PDF; se omite.")
+            firma_added = False
+    if not firma_added:
+        story.append(Spacer(1, 14))
+        story.append(Paragraph("Firma del médico: <i>(no disponible)</i>", section))
 
     story.append(Spacer(1, 24))
     pie = ParagraphStyle("pie", parent=styles["Normal"],
@@ -931,7 +940,15 @@ async def recetas_pdf(receta_id: int, user_id: int):
         f"Solo válida acompañada de la firma del profesional sanitario.",
         pie))
 
-    doc.build(story)
+    try:
+        doc.build(story)
+    except Exception:
+        log.exception("Fallo al construir el PDF; reintento sin firma.")
+        # Rebuild sin firma como red de seguridad
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=2.2*cm, rightMargin=2.2*cm, topMargin=2*cm, bottomMargin=2*cm)
+        story_safe = [s for s in story if not isinstance(s, RLImage)]
+        doc.build(story_safe)
     buf.seek(0)
     safe_name = "".join(c for c in r["nombre_receta"] if c.isalnum() or c in " -_").strip().replace(" ", "_") or "receta"
     return StreamingResponse(

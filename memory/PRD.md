@@ -1,108 +1,65 @@
-# PRD - Turnix Salud
+# Turnix Salud — PRD
 
-## Problema original
-Gestión de turnos médicos con chat médico-paciente en tiempo real, justificantes en PDF
-y videollamada P2P. El cliente pidió:
-1. Logo Turnix en splash de carga en TODAS las pantallas con animación.
-2. Toggle de modo oscuro arriba a la derecha, con animación del logo girando durante el cambio.
-3. Persistir preferencia de tema en localStorage.
-4. PDF de justificante con datos completos (motivo, prioridad, rama del médico) + logo.
-5. Videollamada WebRTC funcional con flujo "1-click": médico llama → al paciente
-   le aparece modal "Aceptar / Rechazar" → al aceptar se conecta automáticamente.
-   Con botones de mute/cam/colgar en ambos lados.
-6. Depurar el proyecto y dejarlo presentable.
+## Problem Statement
+Repositorio: `RodrigoGarcia2004/Turnix-Project` (rama `cambios`).
+Se requería que al generar una receta, el médico pudiese **firmar con el ratón** y enviar la firma con el formulario, y que el paciente pudiera **ver y descargar la receta en PDF** desde su panel. Adicionalmente, dejar la app lista para presentar / desplegar en Render.
 
 ## Stack
-- Backend: FastAPI + asyncpg, Python 3.11. WebSocket + REST en :8001.
-- DB: Postgres en Supabase (Session Pooler IPv4).
-- Frontend: HTML/CSS/JS vanilla en `/app/frontend/public`, servido por `python -m http.server` en :3000.
-- WebRTC: P2P con STUN público (stun.l.google.com), signaling sobre WS.
-- PDF: ReportLab.
-- Email: Resend (verificación de cuentas).
+- Backend: FastAPI + asyncpg (Supabase Postgres, schema `usuarios`/`turnos`/`recetas` con enums).
+- Frontend: HTML estático + JS vanilla servido vía `python3 -m http.server` (no React).
+- PDF: reportlab + PIL (Pillow) para validar firma PNG.
+- Emails: Resend (verificación de cuenta).
+- Tiempo real: WebSockets (`/ws/PACIENTE`, `/ws/MEDICO`, `/ws/ADMIN`).
 
 ## Personas
-- Paciente: pide turno, chatea con el médico, descarga justificantes, acepta videollamadas.
-- Médico: atiende turnos, chat, sube documentos, llama por video, deja notas.
-- Admin: gestiona usuarios y solicitudes de especialidad.
+- **Paciente** — registra cuenta, pide turnos, chatea con el médico, consulta historial y descarga recetas.
+- **Médico** — gestiona pacientes en consulta, genera recetas firmadas, accede a historial.
+- **Admin** — gestiona usuarios y solicitudes de cambio de especialidad.
 
-## Cambios en esta sesión (25/05/2026)
-- Limpieza del proyecto: eliminados `frontend/src`, `node_modules`, `craco`, `tailwind`,
-  carpeta legacy `turnix/` (Java) y `package.json` simplificado a solo `python -m http.server`.
-- Arreglado bug crítico: el bloque `<style>` del dark mode no se cerraba en
-  `index.html`, `acceso.html`, `admin.html`, `medico.html`, `paciente.html`,
-  `privacidad.html` → todo el HTML del body quedaba dentro del `<style>`.
-- Creados `turnix-theme.css` y `turnix-theme.js` compartidos.
-- Splash inicial con logo girando: se muestra en todas las páginas, fade-out al cargar.
-- Toggle dark mode flotante (id=`turnix-dark-toggle`) con overlay de logo girando
-  en la transición; preferencia persistida en localStorage (`turnix-theme`).
-- Logo Turnix inyectado en `index.html` (cabecera) y en el PDF de justificante.
-- PDF rediseñado en 3 secciones: Datos del paciente, Datos de la consulta
-  (con motivo, prioridad, estado, fechas), Profesional sanitario (médico + rama).
-- WebRTC arreglado:
-  - JS `split(":", 3)` reemplazado por `turnixSplit3()` (mantiene `:` del payload JSON).
-  - Backend amplió tipos de mensaje a `WEBRTC_CALL_REQUEST/ACCEPT/REJECT/OFFER/ANSWER/ICE/HANGUP`.
-  - Flujo 1-click: médico → `WEBRTC_CALL_REQUEST` → modal `turnix-video-incoming` en paciente
-    → `WEBRTC_CALL_ACCEPT` → médico crea oferta → handshake estándar SDP/ICE.
-- Botones mute / cam / colgar en ambos lados con cambio de icono al togglear.
+## Core Requirements
+- Login WS por rol con contraseña hasheada/plain (legacy).
+- Generación de recetas con datos médicos + firma manuscrita digital del médico.
+- Firma del médico **obligatoria** (validada en frontend, almacenada como dataURL PNG en columna `firma_base64`).
+- Listado de recetas por paciente + descarga en **PDF con firma embebida**.
+- Validación robusta del PDF (fallback si firma corrupta).
+- App lista para deploy en Render (ya hay `render.yaml`).
+
+## What's been implemented (30/05/2026)
+
+### Fix 1 — Frontend médico (`/app/frontend/public/medico.html`)
+- Añadida lógica completa de canvas para dibujo de firma con **ratón + touch** (events: mousedown/move/up/leave + touchstart/move/end).
+- Validación: el formulario no permite enviar la receta sin firma; muestra alerta y resalta el hint.
+- Reset del canvas al abrir/cerrar modal y tras envío correcto.
+- Captura `firmaCanvas.toDataURL('image/png')` y lo envía en `firma_base64`.
+
+### Fix 2 — Frontend paciente (`/app/frontend/public/paciente.html`)
+- Añadida sección **"Mis Recetas"** con listado dinámico (`#recetas-list`).
+- Tarjetas con nombre, médico, especialidad, fecha, código RX-xxxxxxxx, motivo + botón **"Descargar PDF"**.
+- Función `cargarRecetasPaciente()` invocada al hacer LOGIN_OK y por refresco manual.
+- Handler WS para `RECETA_NUEVA:` y `SISTEMA:RECETA_GENERADA:` que refresca la lista en vivo.
+- Función `descargarRecetaPDF(id)` que descarga `application/pdf` con nombre `receta_{id}.pdf`.
+
+### Fix 3 — Backend bugs (`/app/backend/server.py`)
+- Corregido `column m.email does not exist` → reemplazado por `m.correo_electronico AS medico_email` (y `p.correo_electronico AS paciente_email`) en 4 queries (historial, recetas paciente, PDF, solicitudes especialidad).
+- Corregido `UniqueViolation` en `recetas.turno_id` → si ya hay receta para ese turno, se inserta con `turno_id=NULL` permitiendo múltiples recetas por consulta.
+- Hardening de PDF: validación PIL `verify()` previa al embebido; si la firma está corrupta se muestra "(no disponible)" en lugar de devolver 500. Doble red de seguridad con try/except envolviendo `doc.build()`.
 
 ## Testing
-- 9/9 backend tests OK (`/app/backend/tests/test_turnix_backend.py`).
-- UI flows: login, splash, dark mode, PDF, signaling WebRTC y modal de incoming call verificados.
-- Sin issues críticos pendientes.
+- Testing agent: **18/18 tests pasados** (backend). Cubre listado, PDF con image stream, creación con/sin firma, autorización, password incorrecta, paciente inexistente, UNIQUE turno_id, fix de columna, login WS para los 3 roles.
+- E2E manual (Playwright): login médico → modal receta → dibujo firma → submit → password → confirmación. Login paciente → 9 recetas visibles → descarga PDF (200 OK, ~115 KB con image embebida).
+- Tests automatizados creados por testing agent: `/app/backend/tests/test_recetas.py`.
 
-## Backlog (futuro, no bloqueante)
-- P2: Login REST unificado (medico/admin actualmente vía WS / `/api/admin/login`).
-- P2: Refactor `server.py` (>1300 líneas) en submódulos.
-- P2: TURN server (solo STUN ahora; NAT estricto puede impedir conexión P2P en algunas redes).
-- P3: Incluir DNI/centro en BD para reflejarlos en el PDF (hoy no existen esas columnas).
+## Deployment
+- `render.yaml` ya configurado (web service: backend + static site frontend).
+- Variables: `SUPABASE_HOST`, `SUPABASE_PORT`, `SUPABASE_DB`, `SUPABASE_USER`, `SUPABASE_PASSWORD`, `RESEND_API_KEY`, `CORS_ORIGINS=*`, `UPLOADS_DIR=/tmp/turnix_uploads`, `FRONTEND_DIR=/opt/render/project/src/frontend/public` (ya existentes en el dashboard del usuario).
+- Para activar el cambio en Render: el usuario debe usar la opción **"Save to Github"** del chat para hacer push a la rama `cambios`; Render auto-desplegará.
 
-## Cambios 2026-05-27 (fork actual)
+## Backlog / P1
+- Endpoint para descargar firma original (PNG) por separado.
+- Dividir `server.py` (1927 LOC) en módulos (auth, recetas, turnos, admin).
+- Persistir firma del médico en su perfil para reusarla por defecto.
 
-### Recetas (acceso.html) — bugs corregidos
-- `cargarMisRecetas` estaba anidada dentro de sí misma → ahora es una sola función.
-- URLs ahora usan prefijo `/api/recetas/...` correctamente.
-- Respuesta backend = array plano (antes esperaba `data.recetas`).
-- Mapeo de campos: `nombre_receta`, `medico_nombre`, `medico_especialidad`, `medico_email`.
-- PDF download incluye `?user_id=` (requerido por backend).
-
-### Admin "Editar usuario"
-- Nuevo botón "✏️ Editar" naranja al lado de "🗑 Borrar" en cada fila.
-- Modal con todos los campos editables: usuario, nombre, nombre_completo, email, rol, especialidad, password (opcional), email_verificado.
-- Requiere contraseña de admin para confirmar.
-- Backend: `POST /api/admin/edit-user` (validación admin + UPDATE dinámico).
-
-### Backend nuevo
-- `GET /api/usuarios?nombre=X` — lookup de usuario por nombre completo/usuario (usado por medico.html).
-- `POST /api/admin/edit-user` — edición masiva con validación admin.
-- DELETE cascade en `recetas` cuando admin borra usuario (medico o paciente).
-
-## Cambios 2026-05-27 v2 (uptime + cache + UI global)
-
-### Fix cache obsoleto al volver de aviso-legal/privacidad
-- Middleware `NoCacheStaticMiddleware` en FastAPI: cabeceras `Cache-Control: no-store, no-cache, must-revalidate` + `Pragma: no-cache` para todo `.html`, `.js`, `.css` y `/`.
-- Verificado con `curl -I /acceso.html`.
-
-### Botón "← Inicio" global
-- Inyectado por `turnix-theme.js` (función `ensureHomeBtn`) en TODAS las páginas excepto `index.html`.
-- No duplica con enlaces existentes (`.btn-volver`, textos "Volver al inicio" o "Volver a Turnix").
-- Estilo flotante pastilla blanca arriba-izquierda + soporte dark mode.
-
-### Dark mode toggle
-- Ya estaba presente en `turnix-theme.js` (auto-inject) en todas las páginas. Confirmado funcional.
-
-### Contador "Conectado desde hace"
-- En `medico.html`: nuevo `<p id="uptime-text">⏱ Conectado desde hace <b>0m</b></p>` debajo del estado.
-- Función `iniciarContadorConexion()` ejecuta cada 1s, formato `Xd Yh Zm`/`Xh Ym`/`Xm Ys`/`Xs`.
-- Se arranca al recibir `LOGIN_OK:MEDICO|ADMIN`.
-
-### Tabla `sesiones_conexion` (tracking de uptime)
-- Schema: id, usuario_id, rol, fecha_inicio, fecha_fin, duracion_seg.
-- `session_open(ws, user)` se llama al login WS para MEDICO/ADMIN.
-- `session_close(ws)` se llama en el `finally` del endpoint WS.
-- Al startup se cierran defensivamente sesiones que quedaron abiertas (reinicios).
-
-### Admin: Tab "Historial de conexiones"
-- Posición: tercera pestaña a la derecha de "Solicitudes de especialidad".
-- Filtros: Última semana / Último mes (30d) / Todo / Mes específico (12 últimos meses).
-- Dos tablas: Resumen agregado por usuario (sesiones, tiempo total, activa) + lista cronológica.
-- Endpoint: `POST /api/admin/conn-history` (acepta `range`, `desde`, `hasta`, `usuario_id`).
+## Backlog / P2
+- Validar firma_base64 obligatoria también en backend (actualmente solo en frontend).
+- Compresión/optimización del PNG de la firma antes de guardar.
+- Auditoría: registrar IP + user agent al firmar receta.
