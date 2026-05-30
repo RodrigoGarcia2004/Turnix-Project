@@ -1,0 +1,37 @@
+{
+  "summary": "Testing completo de Turnix (login, splash, dark mode, PDF justificante, signaling WebRTC y modal incoming). 9/9 tests backend pasan. UI verificada en index/paciente/medico/admin/acceso. Sin regresiones encontradas.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/auth/login", "issue": "Endpoint solo admite PACIENTE (devuelve 403 para medico/admin). Es el comportamiento documentado: medico/admin se autentican por WebSocket (login:user:pass) o /api/admin/login. La afirmacion del review_request 'devuelve user info correcta para los 3 usuarios' debe interpretarse via mecanismos correspondientes."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_turnix_backend.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Si se desea login REST unificado, considerar habilitar medico/admin en /api/auth/login o documentar claramente que cada rol usa endpoint distinto. (No bloqueante; las pantallas frontend usan los flujos correctos via WS y /api/admin/login.)"
+  ],
+  "critical_code_review_comments": [
+    "WebSocket login es case-sensitive ('login:' minusculas). Documentado correctamente en code path pero el test_credentials.md menciona 'LOGIN:' en mayusculas - sugerir alinear documentacion para evitar confusion.",
+    "El JSON SDP/ICE se transporta dentro de un string con 'KIND:target:payload' y el payload puede contener ':'. Frontend usa turnixSplit3 (correcto). Backend usa split(':', 2) (correcto). Verificado por test_webrtc_offer_with_json_payload_preserved.",
+    "PDF justificante mezcla numero de turno (#284) con codigo de verificacion TURNIX-00000287. No es un bug per se pero puede confundir; revisar si justificante.id != turno.id es intencional.",
+    "server.py >1300 lineas - se podria refactorizar en modulos (auth/, ws/, admin/, justificante/) en futura iteracion."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_turnix_backend.py (nuevo)"
+  ],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% (UI flows verificados)"},
+  "test_credentials": "user1/1234 (PACIENTE id=2), medico1/1234 (MEDICO id=3), admin/1234 (ADMIN). Tomados de /app/memory/test_credentials.md.",
+  "seed_data_creation": "Ninguna - usa data real de Supabase (turno 287 ya existe en estado COMPLETADO).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests en /app/backend/tests/test_turnix_backend.py cubren: health, login REST paciente, admin login, PDF justificante 287 con todos los campos requeridos, y 3 escenarios de signaling WebRTC sobre WebSocket (CALL_REQUEST, CALL_ACCEPT, OFFER con payload JSON con multiples ':'). Para WS login usar 'login:user:pass' (minusculas). El flujo completo de WebRTC con video real en playwright no se ejecuto (requiere --use-fake-ui-for-media-stream y permisos especificos del navegador headless); en su lugar se valido (a) que el modal turnixShowIncomingCall renderiza con boton aceptar/rechazar y el callback se invoca, y (b) que el backend reenvia correctamente CALL_REQUEST/ACCEPT/OFFER entre los WS de medico1 y user1.",
+  "rca_of_the_issue": "N/A - no se encontraron bugs."
+}

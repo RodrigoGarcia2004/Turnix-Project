@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Panel Médico - Turnix</title>
+    <style>
+        :root {
+            --primary: #3498db; --primary-hover: #2980b9; --secondary: #2ecc71;
+            --bg: #f0f4f8; --text: #2c3e50; --white: #ffffff; --gray-light: #e2e8f0;
+            --gray-dark: #64748b; --accent: #e67e22;
+        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: var(--bg); padding: 20px; color: var(--text); margin: 0; }
+        .dashboard { display: grid; grid-template-columns: 1fr 2fr; gap: 25px; max-width: 1100px; margin: 20px auto; animation: fadeInUp 0.6s ease-out; }
+        .btn-volver { position: absolute; top: 20px; left: 20px; display: flex; align-items: center; gap: 8px; color: var(--gray-dark); text-decoration: none; font-weight: 600; font-size: 14px; transition: color 0.3s ease; }
+        .btn-volver:hover { color: var(--primary); }
+        .card { background: var(--white); padding: 30px; border-radius: 18px; box-shadow: 0 8px 25px rgba(0, 0, 0, 0.08); transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); animation: fadeInUp 0.5s ease-out; }
+        .card:hover { transform: translateY(-8px); box-shadow: 0 15px 35px rgba(0, 0, 0, 0.12); }
+        h2 { color: var(--text); border-bottom: 3px solid var(--primary); padding-bottom: 12px; margin-top: 0; font-weight: 600; }
+        .header-perfil { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--gray-light); padding-bottom: 15px; margin-bottom: 20px; }
+        .perfil-info { display: flex; align-items: center; gap: 15px; }
+        .perfil-img { width: 60px; height: 60px; border-radius: 50%; object-fit: cover; border: 2px solid var(--primary); transition: transform 0.3s ease; }
+        .perfil-img:hover { transform: scale(1.1); }
+        .gear-btn { font-size: 24px; cursor: pointer; transition: transform 0.4s ease; background: none; box-shadow: none; width: auto; padding: 0; color: var(--gray-dark); border: none; }
+        .gear-btn:hover { transform: rotate(90deg); color: var(--primary); }
+        input[type="text"], input[type="password"], input[type="file"] { width: 100%; box-sizing: border-box; padding: 12px 15px; margin-bottom: 15px; border-radius: 10px; border: 1px solid var(--gray-light); font-size: 15px; transition: all 0.3s ease; }
+        input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.15); transform: translateY(-1px); }
+        .form-group label { display: block; font-size: 13px; font-weight: 700; margin-bottom: 6px; color: var(--text); }
+        .turno-item { background: #f8fbfe; margin: 12px 0; padding: 15px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; border-left: 5px solid var(--primary); box-shadow: 0 3px 10px rgba(0,0,0,0.06); transition: all 0.3s ease; }
+        .turno-item:hover { transform: translateX(8px); box-shadow: 0 6px 15px rgba(52, 152, 219, 0.15); }
+        button { background: var(--secondary); color: white; border: none; padding: 13px 22px; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 15px; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(46, 204, 113, 0.2); }
+        button:hover { filter: brightness(1.08); transform: translateY(-2px); box-shadow: 0 6px 16px rgba(46, 204, 113, 0.3); }
+        button:active { transform: scale(0.96); }
+        button.atender { background: var(--primary); }
+        button.llamar { background: var(--accent); width: 100%; }
+        button.danger { background: #e74c3c; }
+        #log-actividad { font-size: 13px; color: #7f8c8d; height: 130px; overflow-y: auto; background: #fdfdfd; padding: 14px; border: 1px solid var(--gray-light); border-radius: 10px; }
+        .chat-container { border-top: 2px solid #f1f1f1; margin-top: 20px; padding-top: 20px; display: none; animation: fadeIn 0.5s ease-out; }
+        #chat-window { height: 300px; overflow-y: auto; background: #f8fafc; border: 1px solid var(--gray-light); padding: 15px; margin-bottom: 15px; border-radius: 14px; display: flex; flex-direction: column; gap: 10px; }
+        .bubble { max-width: 80%; padding: 12px 16px; border-radius: 16px; font-size: 14px; line-height: 1.4; position: relative; box-shadow: 0 2px 8px rgba(0,0,0,0.08); word-break: break-word; animation: bubblePop 0.3s ease-out; }
+        @keyframes bubblePop { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .msg-paciente { background: #e1effe; align-self: flex-start; color: #1e3a8a; }
+        .msg-medico { background: #dcf8c6; align-self: flex-end; color: #166534; }
+        .timestamp { font-size: 10px; color: rgba(0,0,0,0.5); margin-top: 6px; display: block; text-align: right; }
+        .sistema-alerta { align-self: center; background: #fff3cd; color: #856404; font-weight: bold; border-radius: 20px; padding: 6px 16px; font-size: 12px; margin: 5px 0; }
+        .sistema-conectado { align-self: center; background: #d1fae5; color: #065f46; font-weight: bold; border-radius: 20px; padding: 6px 16px; font-size: 12px; margin: 5px 0; }
+        .sistema-desconectado { align-self: center; background: #fee2e2; color: #991b1b; font-weight: bold; border-radius: 20px; padding: 6px 16px; font-size: 12px; margin: 5px 0; }
+        .tab-btn { background:transparent; color:var(--gray-dark); border:none; padding:10px 14px; cursor:pointer; font-weight:600; font-size:13px; border-bottom:3px solid transparent; }
+        .tab-btn.tab-active { color: var(--primary); border-bottom-color: var(--primary); }
+        .doc-item { display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:#f8fafc;border-radius:8px;margin:6px 0;border:1px solid var(--gray-light); }
+        .msg-hist { padding:10px 12px;border-radius:10px;margin:5px 0;font-size:13px; max-width: 85%; }
+        .msg-hist.medico { background:#dbeafe; color:#1e3a8a; align-self:flex-end; }
+        .msg-hist.paciente { background:#f1f5f9; color:#1e293b; align-self:flex-start; }
+        .chat-input-group { display: flex; gap: 10px; align-items: center; }
+        .btn-adjunto { background: var(--gray-light); color: var(--text); padding: 12px; display: flex; align-items: center; justify-content: center; font-size: 18px; width: 45px; height: 45px; border-radius: 10px; flex-shrink: 0; transition: all 0.3s ease; }
+        .btn-adjunto:hover { background: var(--gray-dark); color: white; transform: scale(1.1); }
+        #login-medico { max-width: 420px; margin: 80px auto; text-align: center; animation: fadeInUp 0.7s ease-out; }
+        .forgot-pass { display: block; text-align: right; font-size: 13px; color: var(--primary); text-decoration: none; margin: -5px 0 20px 0; font-weight: 500; }
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(6px); z-index: 1000; justify-content: center; align-items: center; animation: fadeIn 0.3s ease-out; }
+        .modal-content { background: white; padding: 32px; border-radius: 18px; width: 90%; max-width: 420px; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25); text-align: left; position: relative; animation: modalPop 0.4s ease-out; }
+        @keyframes modalPop { from { transform: scale(0.9) translateY(20px); opacity: 0; } to { transform: scale(1) translateY(0); opacity: 1; } }
+        .close-modal { position: absolute; top: 18px; right: 22px; font-size: 22px; cursor: pointer; color: var(--gray-dark); transition: color 0.2s; }
+        .close-modal:hover { color: #e74c3c; }
+        #video-wrapper-medico { position: fixed; bottom: 20px; right: 20px; background: black; border-radius: 18px; overflow: hidden; box-shadow: 0 15px 35px rgba(0,0,0,0.5); z-index: 1000; border: 3px solid var(--primary); display: none; flex-direction: column; animation: fadeInUp 0.4s ease-out; }
+        #local-video-medico { width: 300px; height: 225px; object-fit: cover; }
+        .video-controls { background: #222; padding: 12px; display: flex; justify-content: center; gap: 12px; }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+    <link rel="stylesheet" href="turnix-theme.css">
+</head>
+<body>
+<a href="acceso.html" class="btn-volver">← Volver al inicio</a>
+
+    <!-- LOGIN -->
+    <div id="login-medico" class="card">
+        <h1 style="color:var(--primary); margin-bottom: 10px; display: flex; align-items: center; gap: 12px; font-size: 2.1em;">
+		    <img src="turnix-logo.png" 
+		         alt="Turnix" 
+		         style="height: 44px; width: auto; vertical-align: middle;">
+		    <span style="font-weight: 700;">Pro</span>
+		</h1>
+		<h2 style="border:none; margin-bottom: 20px;">🔑 Acceso Médico</h2>
+        <input type="text" id="user-med" placeholder="Usuario Médico" value="medico1">
+        <input type="password" id="pass-med" placeholder="Contraseña" value="1234">
+        <a href="#" class="forgot-pass" onclick="mostrarModalPass()">¿Has olvidado tu contraseña?</a>
+        <button onclick="loginMedico()" style="width: 100%; font-size: 16px; padding: 15px;">Entrar al Panel</button>
+    </div>
+
+    <!-- MODAL RECUPERAR CONTRASEÑA (3 pasos) -->
+    <div id="modal-pass" class="modal-overlay">
+        <div class="modal-content" style="max-width: 440px;">
+            <h3 style="color: var(--primary); margin-bottom: 4px;">🔒 Recuperar Contraseña</h3>
+
+            <!-- Paso 1: pedir email -->
+            <div id="fp-step-1">
+                <p style="color: #64748b; font-size: 14px;">Introduce el correo asociado a tu cuenta. Te enviaremos un código de 6 dígitos.</p>
+                <input type="email" id="fp-email" placeholder="ejemplo@correo.com" data-testid="forgot-email">
+                <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 15px;">
+                    <button class="btn-modal-cancel" onclick="cerrarModalPass()">Cancelar</button>
+                    <button style="background: var(--primary);" onclick="fpEnviarCodigo()" data-testid="forgot-send-code">Enviar código</button>
+                </div>
+                <div id="fp-msg-1" style="margin-top: 12px; font-size: 13px; color: #ef4444; min-height: 18px;"></div>
+            </div>
+
+            <!-- Paso 2: introducir codigo -->
+            <div id="fp-step-2" style="display: none;">
+                <p style="color: #64748b; font-size: 14px;">Hemos enviado un código a <b id="fp-email-display"></b>. Revisa tu bandeja (y la carpeta de spam).</p>
+                <input type="text" id="fp-code" placeholder="123456" maxlength="6" style="letter-spacing: 8px; text-align: center; font-size: 22px; font-weight: bold;" data-testid="forgot-code">
+                <div style="display: flex; gap: 10px; justify-content: space-between; margin-top: 15px;">
+                    <button class="btn-modal-cancel" onclick="fpVolverPaso1()">← Cambiar email</button>
+                    <button style="background: var(--primary);" onclick="fpVerificarCodigo()" data-testid="forgot-verify-code">Verificar código</button>
+                </div>
+                <div id="fp-msg-2" style="margin-top: 12px; font-size: 13px; color: #ef4444; min-height: 18px;"></div>
+            </div>
+
+            <!-- Paso 3: nueva password -->
+            <div id="fp-step-3" style="display: none;">
+                <p style="color: #64748b; font-size: 14px;">Código verificado ✓. Introduce tu nueva contraseña.</p>
+                <input type="password" id="fp-newpass" placeholder="Nueva contraseña" data-testid="forgot-new-password">
+                <input type="password" id="fp-newpass2" placeholder="Repite la contraseña" data-testid="forgot-new-password-2" style="margin-top: 8px;">
+                <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 15px;">
+                    <button class="btn-modal-cancel" onclick="cerrarModalPass()">Cancelar</button>
+                    <button style="background: var(--primary);" onclick="fpResetear()" data-testid="forgot-reset-submit">Cambiar contraseña</button>
+                </div>
+                <div id="fp-msg-3" style="margin-top: 12px; font-size: 13px; color: #ef4444; min-height: 18px;"></div>
+            </div>
+
+            <!-- Paso 4: exito -->
+            <div id="fp-step-4" style="display: none; text-align: center;">
+                <div style="font-size: 64px; margin: 10px 0;">✅</div>
+                <h4 style="color: #10b981; margin: 0 0 8px;">¡Contraseña actualizada!</h4>
+                <p style="color: #64748b; font-size: 14px;">Ya puedes iniciar sesión con tu nueva contraseña.</p>
+                <button style="background: var(--primary); margin-top: 10px;" onclick="cerrarModalPass()">Aceptar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL AJUSTES -->
+    <div id="modal-ajustes" class="modal-overlay">
+        <div class="modal-content">
+            <span class="close-modal" onclick="cerrarAjustes()">✕</span>
+            <h3 style="color: var(--primary);">⚙️ Ajustes del Profesional</h3>
+            <div class="form-group">
+                <label>Foto de Perfil</label>
+                <input type="file" id="input-foto" accept="image/*" onchange="previewImagenMedico(this)">
+            </div>
+            <div class="form-group">
+                <label>Nombre a mostrar (Ej: Dr. García)</label>
+                <input type="text" id="adj-nombre" placeholder="Nuevo nombre...">
+            </div>
+            <div style="border-top: 1px solid var(--gray-light); margin: 15px 0; padding-top: 15px;">
+                <div class="form-group">
+                    <label>Contraseña Actual (Requerida)</label>
+                    <input type="password" id="adj-pass-old">
+                </div>
+                <div class="form-group">
+                    <label>Nueva Contraseña (Opcional)</label>
+                    <input type="password" id="adj-pass-new">
+                </div>
+            </div>
+            <button style="width: 100%; background: var(--secondary);" onclick="guardarAjustes()">Guardar Cambios</button>
+
+            <div style="border-top:2px dashed var(--gray-light); margin: 22px 0 12px; padding-top: 16px;">
+                <h4 style="margin:0 0 8px;color:var(--primary);">🩺 Cambiar especialidad</h4>
+                <p style="font-size:12px;color:var(--gray-dark);margin:0 0 10px;">Esta acción requiere aprobación del administrador.</p>
+                <div class="form-group">
+                    <label>Nueva especialidad</label>
+                    <select id="esp-select" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--gray-light);"></select>
+                </div>
+                <div class="form-group">
+                    <label>Especialidad personalizada (si seleccionaste "Otro")</label>
+                    <input type="text" id="esp-custom" placeholder="Ej: Medicina del deporte" disabled>
+                </div>
+                <div class="form-group">
+                    <label>Motivo (opcional)</label>
+                    <textarea id="esp-motivo" rows="2" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--gray-light);"></textarea>
+                </div>
+                <button onclick="enviarSolicitudEspecialidad()" style="width:100%;background:#7c3aed;">📨 Solicitar cambio</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL VISOR IMAGEN -->
+    <div id="modal-visor-imagen" class="modal-overlay" onclick="cerrarVisorImagen()" style="z-index: 2000; cursor: zoom-out;">
+        <span class="close-modal" style="color: white; right: 30px; top: 20px; font-size: 30px; text-shadow: 0 0 10px black;">✕</span>
+        <img id="img-fullscreen" src="" style="max-width: 90%; max-height: 90%; border-radius: 8px; box-shadow: 0 0 30px rgba(0,0,0,0.8);">
+    </div>
+
+    <!-- MODAL HISTORIAL / DOCUMENTOS DEL PACIENTE -->
+    <div id="modal-historial" class="modal-overlay">
+        <div class="modal-content" style="max-width:760px; width:92%; max-height:88vh; overflow-y:auto;">
+            <span class="close-modal" onclick="cerrarModalHistorial()">✕</span>
+            <h3 style="color:var(--primary);margin-top:0;">📁 Historial del paciente</h3>
+            <p style="color:var(--gray-dark);font-size:13px;margin:0 0 14px;">Paciente activo: <b id="hist-nombre-paciente">—</b></p>
+            <div style="display:flex; gap:6px; border-bottom:2px solid var(--gray-light); margin-bottom:14px;">
+                <button onclick="histTab('docs')" id="tab-docs" class="tab-btn tab-active">📎 Documentos</button>
+                <button onclick="histTab('chat')" id="tab-chat" class="tab-btn">💬 Chat de la consulta</button>
+                <button onclick="histTab('turnos')" id="tab-turnos" class="tab-btn">📅 Turnos previos</button>
+            </div>
+            <div id="hist-content" style="min-height:240px;"></div>
+        </div>
+    </div>
+
+    <!-- DASHBOARD -->
+    <div id="dashboard-medico" class="dashboard" style="display:none;">
+        <div class="card">
+            <div class="header-perfil">
+                <div class="perfil-info">
+                    <img src="https://via.placeholder.com/60" id="img-perfil-medico" class="perfil-img">
+                    <div>
+                        <h2 id="nombre-profesional" style="margin: 0; border: none; padding: 0;">Dr. De Guardia</h2>
+                        <span style="font-size: 12px; color: var(--secondary);">🟢 Online</span>
+                    </div>
+                </div>
+                <button class="gear-btn" onclick="abrirAjustes()">⚙️</button>
+            </div>
+            <div id="reputacion-medico" style="background: #f8fafc; padding: 18px; border-radius: 12px; margin: 15px 0; border: 1px solid var(--gray-light); text-align: center;">
+                <span style="font-size: 26px;">⭐ <strong id="media-estrellas">0.0</strong></span><br>
+                <small style="color: var(--gray-dark); font-weight: 500;">(<span id="total-votos">0</span> valoraciones)</small>
+            </div>
+            <div style="background: #ecfdf5; padding: 14px; border-radius: 10px; margin-bottom: 15px; border: 1px solid #d1fae5;" id="status-container">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <p style="margin:0; font-size: 14px;">Estado: <span id="status-text" style="color: #059669; font-weight: bold;">● Conectado</span></p>
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                        <input type="checkbox" id="toggle-offline" onchange="toggleOffline()" style="width:18px;height:18px;cursor:pointer;">
+                        <span style="font-size:12px;color:#475569;">Modo offline</span>
+                    </label>
+                </div>
+                <p id="especialidad-text" style="margin:6px 0 0; font-size: 12px; color:#475569;">Especialidad: <b id="esp-actual">—</b></p>
+                <p id="uptime-text" data-testid="uptime-text" style="margin:4px 0 0; font-size: 12px; color:#0d9488;">⏱ Conectado desde hace <b id="uptime-value">0m</b></p>
+            </div>
+            <div id="log-actividad">Esperando actividad...</div>
+            <hr style="border: 0; border-top: 1px solid var(--gray-light); margin: 22px 0;">
+            <button onclick="abrirModalHistorial()" style="background: #0d9488; width: 100%; margin-bottom: 10px;">📁 Documentos / Historial del paciente</button>
+            <button onclick="verMisValoraciones()" style="background: #f39c12; width: 100%; margin-bottom: 12px;">⭐ Ver Mis Valoraciones</button>
+            <button class="llamar" onclick="llamarSiguiente()">🔔 Llamar Siguiente Turno</button>
+        </div>
+
+        <div class="card">
+            <h2>⏳ Pacientes en Espera</h2>
+            <div id="lista-turnos"></div>
+            <div id="panel-chat" class="chat-container">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--gray-light); padding-bottom: 15px; gap: 10px;">
+                    <h3 style="margin:0;">💬 Consulta Activa: <span id="nombre-paciente-chat" style="color: var(--primary);">...</span></h3>
+                    <div style="display: flex; gap: 8px;">
+                        <button onclick="abrirModalReceta()" data-testid="open-receta-modal" style="background: #16a34a; padding: 9px 14px; font-size: 13px;">📝 Crear Receta</button>
+                        <button onclick="iniciarVideoMedico()" style="background: #9b59b6; padding: 9px 14px; font-size: 13px;">📹 Cámara</button>
+                        <button onclick="cerrarChat()" style="background: var(--gray-dark); padding: 9px 14px; font-size: 13px;">Terminar Consulta</button>
+                    </div>
+                </div>
+                <div id="chat-window"></div>
+                <div class="chat-input-group">
+                    <button class="btn-adjunto" onclick="document.getElementById('input-imagen-chat').click()">📎</button>
+                    <input type="file" id="input-imagen-chat" accept="image/*" style="display: none;" onchange="enviarImagenChat(this)">
+                    <input type="text" id="mensaje-medico" placeholder="Escribe un mensaje..." onkeypress="checkEnter(event)" style="margin-bottom: 0;">
+                    <button onclick="enviarMensaje()" style="background: var(--primary);">Enviar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="video-wrapper-medico">
+        <div style="display:flex; gap:6px; padding:6px; background:#111;">
+            <video id="local-video-medico" autoplay muted playsinline style="width:160px; height:120px; object-fit:cover; border-radius:8px;"></video>
+            <video id="remote-video-medico" autoplay playsinline style="width:240px; height:180px; object-fit:cover; border-radius:8px; background:#000;"></video>
+        </div>
+        <div class="video-controls">
+            <span style="color:white; font-size: 12px; font-weight: bold; align-self: center; margin-right: auto;">🎥 Videoconsulta</span>
+            <button id="btn-mic-medico" onclick="toggleMicMedico()" title="Silenciar/Activar microfono" style="background:#475569; padding: 6px 12px; font-size: 14px; min-width: 38px;">🎤</button>
+            <button id="btn-cam-medico" onclick="toggleCamMedico()" title="Apagar/Encender camara" style="background:#475569; padding: 6px 12px; font-size: 14px; min-width: 38px;">📹</button>
+            <button class="danger" onclick="detenerVideoMedico()" style="padding: 6px 14px; font-size: 12px;">📞 Colgar</button>
+        </div>
+    </div>
+
+	<div id="modal-receta" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:99999; align-items:center; justify-content:center;">
+    <div style="background:white; width:540px; border-radius:18px; box-shadow:0 20px 40px rgba(0,0,0,0.25); overflow:hidden;">
+        
+        <!-- Header verde -->
+        <div style="background:#16a34a; color:white; padding:18px 24px; display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="margin:0; font-size:1.35em;">📋 Nueva Receta Médica</h3>
+            <span onclick="cerrarModalReceta()" style="font-size:26px; cursor:pointer; line-height:1;">&times;</span>
+        </div>
+        
+        <div style="padding:28px 26px;">
+            <form id="form-receta">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-bottom:18px;">
+                    <div>
+                        <label style="font-weight:700; font-size:13px; display:block; margin-bottom:6px;">Medicamento</label>
+                        <input type="text" id="medicamento" required placeholder="Amoxicilina 500mg" style="width:100%; padding:11px; border:1px solid #ccc; border-radius:10px;">
+                    </div>
+                    <div>
+                        <label style="font-weight:700; font-size:13px; display:block; margin-bottom:6px;">Dosis</label>
+                        <input type="text" id="dosis" required placeholder="1 cápsula cada 8 horas" style="width:100%; padding:11px; border:1px solid #ccc; border-radius:10px;">
+                    </div>
+                </div>
+                
+                <div style="margin-bottom:18px;">
+                    <label style="font-weight:700; font-size:13px; display:block; margin-bottom:6px;">Duración del tratamiento</label>
+                    <input type="text" id="duracion" required placeholder="7 días" style="width:100%; padding:11px; border:1px solid #ccc; border-radius:10px;">
+                </div>
+                
+                <div style="margin-bottom:18px;">
+                    <label style="font-weight:700; font-size:13px; display:block; margin-bottom:6px;">Motivo de la prescripción</label>
+                    <textarea id="motivo" required rows="3" placeholder="Infección respiratoria aguda..." style="width:100%; padding:11px; border:1px solid #ccc; border-radius:10px; resize:vertical;"></textarea>
+                </div>
+                
+                <div style="margin-bottom:18px;">
+                    <label style="font-weight:700; font-size:13px; display:block; margin-bottom:6px;">Indicaciones adicionales</label>
+                    <textarea id="indicaciones" rows="2" placeholder="Tomar con comida..." style="width:100%; padding:11px; border:1px solid #ccc; border-radius:10px; resize:vertical;"></textarea>
+                </div>
+                
+                <div style="margin-bottom:24px;">
+                    <label style="font-weight:700; font-size:13px; display:block; margin-bottom:6px;">Firma del médico (dibuja con el ratón)</label>
+                    <div style="border:1px solid #ccc; border-radius:10px; background:#fafafa; overflow:hidden; touch-action:none;">
+                        <canvas id="firma-canvas" data-testid="firma-canvas" width="520" height="160"
+                                style="display:block; width:100%; height:160px; background:#ffffff; cursor:crosshair;"></canvas>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+                        <small id="firma-hint" style="color:#64748b;">Mantén pulsado el botón izquierdo y dibuja tu firma.</small>
+                        <button type="button" onclick="limpiarFirma()" data-testid="limpiar-firma"
+                                style="background:none; border:1px solid #cbd5e1; color:#475569; font-size:12px; padding:6px 12px; border-radius:8px; cursor:pointer; font-weight:600;">
+                            🧹 Limpiar
+                        </button>
+                    </div>
+                </div>
+                
+                <div style="display:flex; gap:12px; justify-content:flex-end;">
+                    <button type="button" onclick="cerrarModalReceta()" style="padding:13px 26px; border-radius:10px; border:1px solid #ccc; background:white; font-weight:600;">Cancelar</button>
+                    <button type="submit" style="padding:13px 32px; border-radius:10px; background:#16a34a; color:white; border:none; font-weight:700;">Generar Receta</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<div id="modal-password-receta" class="modal-overlay" style="display:none; z-index: 10000;">
+    <div class="modal-content" style="max-width: 380px; text-align: center;">
+        <h3 style="color: #16a34a; margin-bottom: 8px;">🔒 Confirmar Receta</h3>
+        <p style="color: #64748b; font-size: 14px; margin-bottom: 20px;">
+            Introduce tu contraseña para generar la receta
+        </p>
+        
+        <input type="password" id="password-receta" 
+               placeholder="Tu contraseña" 
+               style="width: 100%; padding: 14px; border: 2px solid #16a34a; border-radius: 10px; font-size: 16px; margin-bottom: 20px;">
+        
+        <div style="display: flex; gap: 12px; justify-content: center;">
+            <button onclick="cerrarModalPassword()" 
+                    style="padding: 12px 24px; border-radius: 10px; border: 1px solid #ccc; background: white; font-weight: 600;">
+                Cancelar
+            </button>
+            <button onclick="confirmarRecetaConPassword()" 
+                    style="padding: 12px 28px; border-radius: 10px; background: #16a34a; color: white; font-weight: 700;">
+                Confirmar y Generar
+            </button>
+        </div>
+    </div>
+</div>
+
+    <script>
+        const WS_PROTO = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const WS_URL = `${WS_PROTO}//${window.location.host}/api/ws`;
+        const socket = new WebSocket(WS_URL);
+        let pacienteActual = "";
+		let pacienteActualId = null;
+        let streamMedico = null;
+        let pcMedico = null;
+        let myUserName = "";
+        let myUserId = null;
+        const ICE_CONFIG = { iceServers: [{ urls: ["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302"] }] };
+
+        socket.onopen = () => console.log("Conectado al servidor Turnix");
+
+        socket.onmessage = async (event) => {
+            const data = event.data;
+            console.log("📥 Mensaje:", data);
+
+            if (data.startsWith("VALORACION_ACTUALIZADA:")) {
+                const partes = data.split(":");
+                document.getElementById('media-estrellas').innerText = partes[1];
+                document.getElementById('total-votos').innerText = partes[2];
+                addLog("⭐ ¡Nueva valoración recibida!");
+                return;
+            }
+
+            if (data.startsWith("LOGIN_OK:MEDICO") || data.startsWith("LOGIN_OK:ADMIN")) {
+                const partes = data.split(":");
+                if(partes.length > 2) document.getElementById('nombre-profesional').innerText = partes[2];
+                myUserId = partes[3] ? parseInt(partes[3], 10) : null;
+                myUserName = partes[4] || partes[2] || "";
+                document.getElementById('login-medico').style.display = 'none';
+                document.querySelector('.btn-volver').style.display = 'none';
+                document.getElementById('dashboard-medico').style.display = 'grid';
+                addLog("Sesión iniciada correctamente.");
+                cargarFotoPerfilMedico();
+                cargarEspecialidades();
+                iniciarContadorConexion();
+                return;
+            }
+
+            if (data.startsWith("TURNO_ASIGNADO")) {
+                // Nuevo formato: TURNO_ASIGNADO:<displayName>:<usuario>:<numero>:<tipo>:<prioridad>
+                // o legacy: TURNO_ASIGNADO: nombre (Turno #N)
+                let nombre, usuario_id, numero, tipo, prio;
+                if (data.startsWith("TURNO_ASIGNADO:")) {
+                    const p = data.substring("TURNO_ASIGNADO:".length).split(":");
+                    nombre = p[0]; usuario_id = p[1] || ''; numero = p[2] || '?';
+                    tipo = p[3] || 'Otro'; prio = p[4] || 'Moderada';
+                } else {
+                    const info = data.replace("TURNO_ASIGNADO: ", "");
+                    nombre = info.split(" (")[0];
+                    usuario_id = nombre; numero = '?'; tipo = 'Otro'; prio = 'Moderada';
+                }
+                const lista = document.getElementById('lista-turnos');
+                const colorBg = prio === 'Urgente' ? '#fee2e2' : prio === 'Leve' ? '#d1fae5' : '#fef3c7';
+                const colorBorder = prio === 'Urgente' ? '#ef4444' : prio === 'Leve' ? '#10b981' : '#f59e0b';
+                const colorText = prio === 'Urgente' ? '#991b1b' : prio === 'Leve' ? '#065f46' : '#92400e';
+                const emojiPrio = prio === 'Urgente' ? '🔴' : prio === 'Leve' ? '🟢' : '🟡';
+                lista.innerHTML += `
+                    <div class="turno-item" id="turno-${nombre}" style="background:${colorBg};border-left:5px solid ${colorBorder};padding:12px;border-radius:10px;margin:8px 0;display:flex;justify-content:space-between;align-items:center;">
+                        <div>
+                            <div style="font-weight:bold;color:${colorText};">🎫 #${numero} · ${nombre}</div>
+                            <div style="font-size:12px;color:${colorText};margin-top:3px;">${emojiPrio} ${prio} · ${tipo}</div>
+                        </div>
+                        <button class="atender" onclick="abrirChat('${nombre}')">Atender</button>
+                    </div>`;
+                addLog(`📢 Turno ${emojiPrio} ${prio}: ${nombre} (${tipo})`);
+                return;
+            }
+
+			if (data.startsWith("COMANDO:ABRIR_CHAT:")) {
+			    const nombre = data.split(":")[2];
+			    abrirChat(nombre, true);   // true = viene del servidor, no envía INICIAR_CONSULTA_MANUAL otra vez
+			    return;
+			}
+
+            if (data.startsWith("CHAT_DE_PACIENTE:")) {
+                pintarMensaje("paciente", data.substring("CHAT_DE_PACIENTE:".length));
+                return;
+            }
+
+            if (data.startsWith("DOCUMENTO_NUEVO:")) {
+                const partes = data.split(":");
+                const nombre = partes[1] || "archivo";
+                addLog("📎 Documento recibido: " + nombre);
+                cargarDocumentosActivos();
+                return;
+            }
+
+            if (data === "NOTIFICAR_VIDEO_PACIENTE") {
+                pintarAlertaSistema("📹 El paciente ha encendido su cámara.");
+                return;
+            }
+
+            // ========== Sistema: paciente conectado / desconectado / aceptó ==========
+            if (data.startsWith("SISTEMA_PACIENTE_CONECTADO:")) {
+                const partes = data.split(":");
+                addLog("🟢 Paciente conectado: " + (partes[2] || partes[1]));
+                pintarAlertaSistemaTipo("conectado", "🟢 " + (partes[2] || partes[1]) + " se ha conectado al sistema.");
+                return;
+            }
+            if (data.startsWith("SISTEMA_PACIENTE_DESCONECTADO:")) {
+                const partes = data.split(":");
+                addLog("🔴 Paciente desconectado: " + (partes[2] || partes[1]));
+                pintarAlertaSistemaTipo("desconectado", "🔴 " + (partes[2] || partes[1]) + " se ha desconectado.");
+                return;
+            }
+            if (data.startsWith("SISTEMA_PACIENTE_ACEPTO:")) {
+                const partes = data.split(":");
+                addLog("✅ " + (partes[2] || partes[1]) + " aceptó la consulta.");
+                pintarAlertaSistemaTipo("conectado", "✅ " + (partes[2] || partes[1]) + " ha aceptado la llamada.");
+                return;
+            }
+
+            // ========== WEBRTC ==========
+            if (data.startsWith("WEBRTC_CALL_ACCEPT:")) {
+                pintarAlertaSistemaTipo("conectado", "✅ El paciente aceptó la videollamada. Conectando...");
+                await crearOfertaVideo();
+                return;
+            }
+            if (data.startsWith("WEBRTC_CALL_REJECT:")) {
+                detenerVideoMedico();
+                pintarAlertaSistemaTipo("desconectado", "❌ El paciente rechazó la videollamada.");
+                return;
+            }
+            if (data.startsWith("WEBRTC_ANSWER:")) {
+                const { payload } = turnixSplit3(data);
+                if (pcMedico && payload) {
+                    try { await pcMedico.setRemoteDescription(JSON.parse(payload)); } catch (e) { console.warn(e); }
+                }
+                return;
+            }
+            if (data.startsWith("WEBRTC_ICE:")) {
+                const { payload } = turnixSplit3(data);
+                if (pcMedico && payload) {
+                    try { await pcMedico.addIceCandidate(JSON.parse(payload)); } catch (e) { console.warn("ICE fail", e); }
+                }
+                return;
+            }
+            if (data.startsWith("WEBRTC_REJECT:")) {
+                detenerVideoMedico();
+                pintarAlertaSistemaTipo("desconectado", "❌ El paciente rechazó la videollamada.");
+                return;
+            }
+            if (data.startsWith("WEBRTC_HANGUP:")) {
+                detenerVideoMedico();
+                pintarAlertaSistema("📞 El paciente colgó la videollamada.");
+                return;
+            }
+
+            if (data.startsWith("SISTEMA:")) {
+                addLog(data.replace("SISTEMA:", "📢 "));
+                return;
+            }
+        };
+
+        function loginMedico() {
+            const u = document.getElementById('user-med').value;
+            const p = document.getElementById('pass-med').value;
+            if(u && p) socket.send(`login:${u}:${p}`);
+        }
+
+        function abrirChat(nombre, desdeServidor = false) {
+            pacienteActual = nombre;
+            document.getElementById('nombre-paciente-chat').innerText = nombre;
+            document.getElementById('panel-chat').style.display = 'block';
+			fetch(`/api/usuarios?nombre=${encodeURIComponent(nombre)}`)
+		    .then(res => res.json())
+		    .then(data => {
+		        if (data && data.id) {
+		            pacienteActualId = data.id;
+		            console.log("✅ ID del paciente encontrado:", pacienteActualId);
+		        } else {
+		            console.warn("⚠️ No se encontró ID para el paciente:", nombre);
+		        }
+		    })
+		    .catch(err => console.error("Error buscando paciente:", err));
+            const win = document.getElementById('chat-window');
+            win.innerHTML = '';
+            pintarAlertaSistema(`🔒 Conexión segura con ${nombre}`);
+            const item = document.getElementById(`turno-${nombre}`);
+            if (item) item.remove();
+            if (!desdeServidor) socket.send("INICIAR_CONSULTA_MANUAL:" + nombre);
+            addLog("📋 Atendiendo a: " + nombre);
+            cargarDocumentosActivos();
+            document.getElementById('mensaje-medico').focus();
+        }
+
+        function enviarMensaje() {
+            const input = document.getElementById('mensaje-medico');
+            const msg = input.value.trim();
+            if (msg && pacienteActual) {
+                socket.send("CHAT_PRIVADO:" + pacienteActual + ":" + msg);
+                pintarMensaje("medico", msg);
+                input.value = "";
+            }
+        }
+
+        async function enviarImagenChat(input) {
+            // El médico también puede subir archivos (ej: receta) y se los envía al paciente
+            if (!input.files || !input.files[0] || !pacienteActual) return;
+            const file = input.files[0];
+            const fd = new FormData();
+            // Usamos id_turno via paciente: el backend asocia al turno EN_ESPERA del paciente,
+            // pero como el medico no es paciente, usamos directamente CHAT con base64 small fallback.
+            // Para consistencia, simplemente enviamos la URL via chat tras subir.
+            try {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const b64 = e.target.result;
+                    socket.send("CHAT_PRIVADO:" + pacienteActual + ":" + b64);
+                    pintarMensaje("medico", b64);
+                };
+                reader.readAsDataURL(file);
+            } catch (e) { console.error(e); }
+            input.value = "";
+        }
+
+        function pintarMensaje(tipo, texto) {
+            const win = document.getElementById('chat-window');
+            const hora = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const clase = tipo === "paciente" ? "msg-paciente" : "msg-medico";
+            const autor = tipo === "paciente" ? "Paciente" : "Tú";
+            let contenido = texto;
+            if (texto.startsWith("data:image")) {
+                contenido = `<img src="${texto}" onclick="abrirImagenFullScreen(this.src)" style="max-width:100%; border-radius:8px; cursor:zoom-in;">`;
+            } else if (/^\/api\/files\/.+/.test(texto.trim())) {
+                const url = texto.trim();
+                if (/\.(png|jpe?g|gif|webp)(\?|$)/i.test(url)) {
+                    contenido = `<img src="${url}" onclick="abrirImagenFullScreen(this.src)" style="max-width:100%; border-radius:8px; cursor:zoom-in;">`;
+                } else {
+                    contenido = `📄 <a href="${url}" target="_blank" style="color:inherit;text-decoration:underline">Descargar archivo</a>`;
+                }
+            }
+            win.innerHTML += `<div class="bubble ${clase}"><b>${autor}:</b> <br> ${contenido}<span class="timestamp">${hora}</span></div>`;
+            win.scrollTop = win.scrollHeight;
+        }
+
+        async function cargarDocumentosActivos() {
+            // Mantenido por compatibilidad: si hay paciente activo, refresca la pestaña docs del modal
+            if (!pacienteActual) return;
+            if (document.getElementById('modal-historial').style.display === 'flex') {
+                histTab(currentHistTab);
+            }
+        }
+
+        // ============= MODAL HISTORIAL DEL PACIENTE =============
+        let currentHistTab = 'docs';
+        function abrirModalHistorial() {
+            if (!pacienteActual) { alert("Abre primero la consulta de un paciente."); return; }
+            document.getElementById('hist-nombre-paciente').textContent = pacienteActual;
+            document.getElementById('modal-historial').style.display = 'flex';
+            histTab('docs');
+        }
+        function cerrarModalHistorial() {
+            document.getElementById('modal-historial').style.display = 'none';
+        }
+        async function histTab(tab) {
+            currentHistTab = tab;
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('tab-active'));
+            const btn = document.getElementById('tab-' + tab);
+            if (btn) btn.classList.add('tab-active');
+            const cont = document.getElementById('hist-content');
+            cont.innerHTML = '<div style="text-align:center;padding:30px;color:var(--gray-dark);">Cargando...</div>';
+            try {
+                if (tab === 'docs') {
+                    const r = await fetch('/api/historial/paciente/' + encodeURIComponent(pacienteActual));
+                    const data = await r.json();
+                    if (!data.documentos.length) { cont.innerHTML = '<div style="color:var(--gray-dark);text-align:center;padding:30px;">No hay documentos en el historial de este paciente.</div>'; return; }
+                    cont.innerHTML = data.documentos.map(d => `
+                        <div class="doc-item">
+                            <div style="font-size:13px;">📎 <b>${d.nombre_archivo}</b><br><small style="color:var(--gray-dark)">Turno #${d.id_turno} · ${new Date(d.subido_en).toLocaleString()}</small></div>
+                            <a href="${d.ruta_archivo}" target="_blank" style="background:var(--primary);color:white;padding:8px 14px;border-radius:8px;text-decoration:none;font-size:12px;font-weight:bold;">Abrir</a>
+                        </div>`).join('');
+                } else if (tab === 'chat') {
+                    const r = await fetch('/api/historial/paciente/' + encodeURIComponent(pacienteActual));
+                    const data = await r.json();
+                    if (!data.mensajes.length) { cont.innerHTML = '<div style="color:var(--gray-dark);text-align:center;padding:30px;">No hay mensajes registrados todavía.</div>'; return; }
+                    const msgs = data.mensajes.slice().reverse();
+                    cont.innerHTML = '<div style="display:flex;flex-direction:column;max-height:400px;overflow-y:auto;padding:5px;">' + msgs.map(m => {
+                        const esMedico = m.emisor_rol === 'MEDICO' || m.emisor_rol === 'ADMIN';
+                        const cls = esMedico ? 'medico' : 'paciente';
+                        const autor = esMedico ? '👨‍⚕️ Médico' : '👤 Paciente';
+                        const hora = new Date(m.fecha_envio).toLocaleString();
+                        let contenido = m.contenido || '';
+                        if (/^\/api\/files\//.test(contenido) && /\.(png|jpe?g|gif|webp)/i.test(contenido)) {
+                            contenido = `<img src="${contenido}" style="max-width:100%;border-radius:6px;">`;
+                        } else if (/^\/api\/files\//.test(contenido)) {
+                            contenido = `<a href="${contenido}" target="_blank">📄 Descargar archivo</a>`;
+                        }
+                        return `<div class="msg-hist ${cls}"><b style="font-size:11px;opacity:0.7;">${autor} · ${hora}</b><br>${contenido}</div>`;
+                    }).join('') + '</div>';
+                } else if (tab === 'turnos') {
+                    const r = await fetch('/api/historial/paciente/' + encodeURIComponent(pacienteActual));
+                    const data = await r.json();
+                    if (!data.turnos.length) { cont.innerHTML = '<div style="color:var(--gray-dark);text-align:center;padding:30px;">Sin turnos previos.</div>'; return; }
+                    cont.innerHTML = '<div style="max-height:420px;overflow-y:auto;">' + data.turnos.map(t => `
+                        <div style="padding:12px;border:1px solid var(--gray-light);border-radius:10px;margin:8px 0;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;">
+                                <b style="color:var(--primary);">Turno #${t.numero_turno}</b>
+                                <span style="font-size:11px;background:var(--gray-light);padding:3px 9px;border-radius:12px;color:var(--text);">${t.estado}</span>
+                            </div>
+                            <div style="font-size:12px;color:var(--gray-dark);margin-top:6px;">📅 ${t.fecha ? new Date(t.fecha).toLocaleString() : '—'}</div>
+                            ${t.notas_medico ? '<div style="margin-top:6px;font-size:13px;background:#fef9c3;padding:6px 10px;border-radius:6px;">📝 ' + t.notas_medico + '</div>' : ''}
+                        </div>`).join('') + '</div>';
+                }
+            } catch (e) {
+                cont.innerHTML = '<div style="color:#dc2626;text-align:center;padding:20px;">Error: ' + e.message + '</div>';
+            }
+        }
+
+        function pintarAlertaSistema(texto) {
+            const win = document.getElementById('chat-window');
+            win.innerHTML += `<div class="sistema-alerta">${texto}</div>`;
+            win.scrollTop = win.scrollHeight;
+        }
+        function pintarAlertaSistemaTipo(tipo, texto) {
+            const win = document.getElementById('chat-window');
+            const klass = tipo === 'conectado' ? 'sistema-conectado' : tipo === 'desconectado' ? 'sistema-desconectado' : 'sistema-alerta';
+            win.innerHTML += `<div class="${klass}">${texto}</div>`;
+            win.scrollTop = win.scrollHeight;
+        }
+
+        function checkEnter(e) { if (e.key === 'Enter') enviarMensaje(); }
+
+        function addLog(msg) {
+            const log = document.getElementById('log-actividad');
+            log.innerHTML += `<div style="margin-bottom: 5px;">[${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}] ${msg}</div>`;
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function llamarSiguiente() { socket.send("LLAMAR_SIGUIENTE"); }
+
+        function cerrarChat() {
+            if (pacienteActual) {
+                socket.send("FINALIZAR_CONSULTA:" + pacienteActual);
+                addLog("🛑 Consulta finalizada con: " + pacienteActual);
+                document.getElementById('panel-chat').style.display = 'none';
+                detenerVideoMedico();
+                pacienteActual = "";
+            } else {
+                alert("No hay consulta activa.");
+            }
+        }
+
+        function verMisValoraciones() {
+            const media = document.getElementById('media-estrellas').innerText;
+            const total = document.getElementById('total-votos').innerText;
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.style.display = 'flex';
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 420px; text-align: center;">
+                    <span class="close-modal" onclick="this.closest('.modal-overlay').remove()">✕</span>
+                    <h3 style="color: #f39c12; margin-bottom: 20px;">⭐ Mis Valoraciones</h3>
+                    <div style="font-size: 52px; margin: 25px 0;">${media} <span style="font-size: 30px;">⭐</span></div>
+                    <p style="font-size: 19px; margin: 10px 0;"><strong>${total}</strong> valoraciones de pacientes</p>
+                    <div style="background: #f8fafc; padding: 16px; border-radius: 12px; margin: 20px 0; text-align: left;">
+                        <p style="margin: 6px 0; font-size: 14px;"><strong>Última valoración:</strong> Hoy</p>
+                        <p style="margin: 6px 0; font-size: 14px;"><strong>Promedio general:</strong> ${media} estrellas</p>
+                    </div>
+                    <button onclick="this.closest('.modal-overlay').remove()" style="background: var(--secondary); width: 100%;">Cerrar</button>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+
+        function previewImagenMedico(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById('img-perfil-medico').src = e.target.result;
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        async function guardarAjustes() {
+            const passOld = document.getElementById('adj-pass-old').value;
+            if (!passOld) { alert("Debes introducir tu contraseña actual por seguridad."); return; }
+            if (!myUserId) { alert("Sesión no válida. Vuelve a iniciar sesión."); return; }
+
+            const file = document.getElementById('input-foto').files[0];
+            const nName = document.getElementById('adj-nombre').value;
+            const nPass = document.getElementById('adj-pass-new').value;
+
+            const enviarPayload = async (fotoB64) => {
+                const body = {
+                    user_id: myUserId,
+                    password: passOld,
+                    nombre: nName || null,
+                    nueva_password: nPass || null,
+                    foto_base64: fotoB64 || null,
+                };
+                try {
+                    const r = await fetch('/api/profile/photo', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body),
+                    });
+                    if (!r.ok) {
+                        const j = await r.json().catch(() => ({}));
+                        alert("Error: " + (j.detail || r.status));
+                        return;
+                    }
+                    alert("Ajustes guardados correctamente.");
+                    cerrarAjustes();
+                    if (nName) document.getElementById('nombre-profesional').innerText = nName;
+                    if (fotoB64) document.getElementById('img-perfil-medico').src = fotoB64;
+                } catch (e) { alert("Error de red: " + e.message); }
+            };
+
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => enviarPayload(e.target.result);
+                reader.readAsDataURL(file);
+            } else {
+                enviarPayload(null);
+            }
+        }
+
+        async function cargarFotoPerfilMedico() {
+            if (!myUserId) return;
+            try {
+                const r = await fetch('/api/profile/photo/' + myUserId);
+                if (!r.ok) return;
+                const u = await r.json();
+                if (u.foto_base64) document.getElementById('img-perfil-medico').src = u.foto_base64;
+                if (u.nombre_completo) document.getElementById('nombre-profesional').innerText = u.nombre_completo;
+                const esp = document.getElementById('esp-actual');
+                if (esp) esp.textContent = u.especialidad || 'No asignada';
+            } catch (e) {}
+        }
+
+        async function cargarEspecialidades() {
+            try {
+                const r = await fetch('/api/especialidades');
+                const d = await r.json();
+                const all = [...d.base, ...d.extras];
+                const sel = document.getElementById('esp-select');
+                if (sel) sel.innerHTML = all.map(t => `<option value="${t}">${t}</option>`).join('');
+                if (sel) sel.addEventListener('change', () => {
+                    document.getElementById('esp-custom').disabled = (sel.value !== 'Otro');
+                });
+            } catch(e){}
+        }
+
+        async function enviarSolicitudEspecialidad() {
+            const sel = document.getElementById('esp-select');
+            let nueva = sel.value;
+            if (nueva === 'Otro') {
+                const custom = document.getElementById('esp-custom').value.trim();
+                if (!custom) { alert('Escribe la especialidad personalizada.'); return; }
+                nueva = custom;
+            }
+            const pass = prompt("Tu contraseña actual para confirmar:");
+            if (!pass) return;
+            try {
+                const r = await fetch('/api/medico/solicitar-especialidad', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({medico_id: myUserId, password: pass, especialidad_nueva: nueva, motivo: document.getElementById('esp-motivo').value})
+                });
+                if (!r.ok) { const j = await r.json(); alert("Error: "+(j.detail||r.status)); return; }
+                alert("Solicitud enviada. El administrador la revisará pronto.");
+            } catch(e) { alert("Error: " + e.message); }
+        }
+
+        async function toggleOffline() {
+            const checked = document.getElementById('toggle-offline').checked;
+            try {
+                await fetch('/api/medico/toggle-offline', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({medico_id: myUserId, offline: checked})
+                });
+                const txt = document.getElementById('status-text');
+                const cont = document.getElementById('status-container');
+                if (checked) {
+                    txt.innerHTML = '● Desconectado'; txt.style.color = '#dc2626';
+                    cont.style.background = '#fef2f2'; cont.style.borderColor = '#fecaca';
+                    pararContadorConexion();
+                    addLog('🔴 Modo offline: no recibirás nuevos turnos.');
+                } else {
+                    txt.innerHTML = '● Conectado'; txt.style.color = '#059669';
+                    cont.style.background = '#ecfdf5'; cont.style.borderColor = '#d1fae5';
+                    iniciarContadorConexion();
+                    addLog('🟢 Modo online: recibiendo turnos.');
+                }
+            } catch(e) { alert("Error: " + e.message); }
+        }
+
+        // ============== Contador de tiempo conectado ==============
+        let connStart = null;
+        let connTimer = null;
+        function formatDuracion(secs) {
+            secs = Math.max(0, Math.floor(secs));
+            const d = Math.floor(secs / 86400);
+            const h = Math.floor((secs % 86400) / 3600);
+            const m = Math.floor((secs % 3600) / 60);
+            const s = secs % 60;
+            if (d > 0) return `${d}d ${h}h ${m}m`;
+            if (h > 0) return `${h}h ${m}m`;
+            if (m > 0) return `${m}m ${s}s`;
+            return `${s}s`;
+        }
+        function iniciarContadorConexion() {
+            // Reiniciar (nueva sesion)
+            if (connTimer) { clearInterval(connTimer); connTimer = null; }
+            connStart = Date.now();
+            const el = document.getElementById('uptime-value');
+            const wrap = document.getElementById('uptime-text');
+            if (!el) return;
+            if (wrap) { wrap.style.display = ''; wrap.style.color = '#0d9488'; }
+            const tick = () => {
+                el.textContent = formatDuracion((Date.now() - connStart) / 1000);
+            };
+            tick();
+            connTimer = setInterval(tick, 1000);
+        }
+        function pararContadorConexion() {
+            if (connTimer) { clearInterval(connTimer); connTimer = null; }
+            const el = document.getElementById('uptime-value');
+            const wrap = document.getElementById('uptime-text');
+            if (el) el.textContent = 'sesión finalizada';
+            if (wrap) wrap.style.color = '#dc2626';
+        }
+
+        function abrirImagenFullScreen(src) {
+            document.getElementById('img-fullscreen').src = src;
+            document.getElementById('modal-visor-imagen').style.display = 'flex';
+        }
+
+        function cerrarVisorImagen() {
+            document.getElementById('modal-visor-imagen').style.display = 'none';
+            document.getElementById('img-fullscreen').src = '';
+        }
+
+        async function iniciarVideoMedico() {
+            if (!pacienteActual) { alert("Abre primero la consulta de un paciente."); return; }
+            try {
+                // 1) Pedimos acceso a camara local YA (mejor UX)
+                streamMedico = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                document.getElementById('local-video-medico').srcObject = streamMedico;
+                document.getElementById('video-wrapper-medico').style.display = 'flex';
+
+                // 2) Enviamos REQUEST al paciente. Esperamos su ACCEPT para crear la oferta.
+                socket.send(`WEBRTC_CALL_REQUEST:${pacienteActual}:`);
+                pintarAlertaSistema("📹 Llamando a " + pacienteActual + " ... esperando que acepte.");
+            } catch (err) {
+                console.error(err);
+                alert("Error al iniciar cámara: " + err.message);
+            }
+        }
+
+        async function crearOfertaVideo() {
+            if (!streamMedico || !pacienteActual) return;
+            try {
+                pcMedico = new RTCPeerConnection(ICE_CONFIG);
+                pcMedico.ontrack = (e) => {
+                    document.getElementById('remote-video-medico').srcObject = e.streams[0];
+                };
+                pcMedico.onicecandidate = (e) => {
+                    if (e.candidate) socket.send(`WEBRTC_ICE:${pacienteActual}:${JSON.stringify(e.candidate)}`);
+                };
+                streamMedico.getTracks().forEach(t => pcMedico.addTrack(t, streamMedico));
+                const offer = await pcMedico.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: true });
+                await pcMedico.setLocalDescription(offer);
+                socket.send(`WEBRTC_OFFER:${pacienteActual}:${JSON.stringify(offer)}`);
+            } catch (err) {
+                console.error(err);
+                pintarAlertaSistema("❌ Error creando la oferta de video: " + err.message);
+            }
+        }
+
+        function toggleMicMedico() {
+            if (!streamMedico) return;
+            const t = streamMedico.getAudioTracks()[0];
+            if (!t) return;
+            t.enabled = !t.enabled;
+            const btn = document.getElementById('btn-mic-medico');
+            if (btn) btn.textContent = t.enabled ? '🎤' : '🔇';
+        }
+
+        function toggleCamMedico() {
+            if (!streamMedico) return;
+            const t = streamMedico.getVideoTracks()[0];
+            if (!t) return;
+            t.enabled = !t.enabled;
+            const btn = document.getElementById('btn-cam-medico');
+            if (btn) btn.textContent = t.enabled ? '📹' : '🚫';
+        }
+
+        function detenerVideoMedico() {
+            if (pcMedico) {
+                try { pcMedico.close(); } catch (_) {}
+                pcMedico = null;
+                if (pacienteActual) socket.send(`WEBRTC_HANGUP:${pacienteActual}`);
+            }
+            if (streamMedico) {
+                streamMedico.getTracks().forEach(track => track.stop());
+                streamMedico = null;
+            }
+            const rv = document.getElementById('remote-video-medico');
+            if (rv) rv.srcObject = null;
+            document.getElementById('video-wrapper-medico').style.display = 'none';
+        }
+
+        function mostrarModalPass() {
+            document.getElementById('modal-pass').style.display = 'flex';
+        }
+
+        function cerrarModalPass() {
+            document.getElementById('modal-pass').style.display = 'none';
+        }
+
+        function enviarRecuperacion() { /* legacy unused */ }
+
+        // ============= FLUJO RECUPERAR CONTRASENA (3 pasos) =============
+        let fpEmail = '';
+        let fpCodigo = '';
+
+        function fpMostrarPaso(n) {
+            for (let i = 1; i <= 4; i++) {
+                const el = document.getElementById('fp-step-' + i);
+                if (el) el.style.display = (i === n) ? 'block' : 'none';
+            }
+        }
+
+        function fpVolverPaso1() { fpMostrarPaso(1); }
+
+        async function fpEnviarCodigo() {
+            const email = document.getElementById('fp-email').value.trim();
+            const msg = document.getElementById('fp-msg-1');
+            msg.textContent = '';
+            if (!email || !email.includes('@')) { msg.textContent = 'Introduce un email válido.'; return; }
+            msg.style.color = '#64748b'; msg.textContent = '⏳ Enviando código...';
+            try {
+                const r = await fetch('/api/auth/forgot-password', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ email })
+                });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                fpEmail = email;
+                document.getElementById('fp-email-display').textContent = email;
+                document.getElementById('fp-code').value = '';
+                msg.textContent = '';
+                fpMostrarPaso(2);
+            } catch (e) {
+                msg.style.color = '#ef4444';
+                msg.textContent = '❌ Error: ' + e.message;
+            }
+        }
+
+        async function fpVerificarCodigo() {
+            const codigo = document.getElementById('fp-code').value.trim();
+            const msg = document.getElementById('fp-msg-2');
+            msg.textContent = '';
+            if (codigo.length !== 6) { msg.textContent = 'El código tiene 6 dígitos.'; return; }
+            msg.style.color = '#64748b'; msg.textContent = '⏳ Verificando...';
+            try {
+                const r = await fetch('/api/auth/verify-reset-code', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ email: fpEmail, codigo })
+                });
+                if (!r.ok) {
+                    const j = await r.json().catch(() => ({}));
+                    throw new Error(j.detail || 'Código incorrecto');
+                }
+                fpCodigo = codigo;
+                msg.textContent = '';
+                document.getElementById('fp-newpass').value = '';
+                document.getElementById('fp-newpass2').value = '';
+                fpMostrarPaso(3);
+            } catch (e) {
+                msg.style.color = '#ef4444';
+                msg.textContent = '❌ ' + e.message;
+            }
+        }
+
+        async function fpResetear() {
+            const p1 = document.getElementById('fp-newpass').value;
+            const p2 = document.getElementById('fp-newpass2').value;
+            const msg = document.getElementById('fp-msg-3');
+            msg.textContent = '';
+            if (p1.length < 4) { msg.textContent = 'Mínimo 4 caracteres.'; return; }
+            if (p1 !== p2) { msg.textContent = 'Las contraseñas no coinciden.'; return; }
+            msg.style.color = '#64748b'; msg.textContent = '⏳ Cambiando contraseña...';
+            try {
+                const r = await fetch('/api/auth/reset-password', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ email: fpEmail, codigo: fpCodigo, nueva_password: p1 })
+                });
+                if (!r.ok) {
+                    const j = await r.json().catch(() => ({}));
+                    throw new Error(j.detail || 'No se pudo cambiar la contraseña');
+                }
+                fpMostrarPaso(4);
+            } catch (e) {
+                msg.style.color = '#ef4444';
+                msg.textContent = '❌ ' + e.message;
+            }
+        }
+
+        // Asegurar que mostrarModalPass arranca en el paso 1
+        const _oldMostrar = window.mostrarModalPass;
+        window.mostrarModalPass = function () {
+            fpEmail = ''; fpCodigo = '';
+            document.getElementById('fp-email').value = '';
+            const msg1 = document.getElementById('fp-msg-1'); if (msg1) { msg1.textContent = ''; }
+            fpMostrarPaso(1);
+            document.getElementById('modal-pass').style.display = 'flex';
+        };
+
+        function abrirAjustes() {
+            document.getElementById('modal-ajustes').style.display = 'flex';
+        }
+
+        function cerrarAjustes() {
+            document.getElementById('modal-ajustes').style.display = 'none';
+        }
+
+
+let recetaPendiente = null;
+
+function abrirModalReceta() {
+    if (!pacienteActual) {
+        alert("Primero abre una consulta con un paciente.");
+        return;
+    }
+    document.getElementById('modal-receta').style.display = 'flex';
+}
+
+function cerrarModalReceta() {
+    document.getElementById('modal-receta').style.display = 'none';
+}
+
+// Cuando se envía el formulario de receta
+document.getElementById('form-receta').addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    // Guardamos los datos temporalmente
+    recetaPendiente = {
+        medico_id: myUserId,
+        paciente_usuario: pacienteActual,
+		paciente_id: pacienteActualId,
+        nombre_receta: document.getElementById('medicamento').value,
+        medicamento: document.getElementById('medicamento').value,
+        dosis: document.getElementById('dosis').value,
+        duracion: document.getElementById('duracion').value,
+        motivo: document.getElementById('motivo').value,
+        indicaciones: document.getElementById('indicaciones').value || "",
+        firma_base64: document.getElementById('firma').value
+    };
+
+    // Cerramos el modal de receta y abrimos el de contraseña
+    cerrarModalReceta();
+    document.getElementById('modal-password-receta').style.display = 'flex';
+    document.getElementById('password-receta').focus();
+});
+
+function cerrarModalPassword() {
+    document.getElementById('modal-password-receta').style.display = 'none';
+    recetaPendiente = null;
+}
+
+async function confirmarRecetaConPassword() {
+    const password = document.getElementById('password-receta').value;
+    
+    if (!password) {
+        alert("Por favor introduce tu contraseña");
+        return;
+    }
+
+    if (!recetaPendiente) return;
+
+    recetaPendiente.medico_password = password;
+
+    try {
+        const res = await fetch('/api/recetas/crear', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(recetaPendiente)
+        });
+
+        const data = await res.json();
+
+        if (res.ok && (data.ok === true || data.success === true)) {
+            // ÉXITO
+            socket.send(`SISTEMA:RECETA_GENERADA:${pacienteActual}:${data.id}`);
+            pintarAlertaSistema("✅ ¡Receta generada correctamente!");
+            cerrarModalPassword();
+            document.getElementById('form-receta').reset();
+            recetaPendiente = null;
+        } else {
+            // Error real
+            alert("Error: " + (data.detail || JSON.stringify(data)));
+            cerrarModalPassword();
+        }
+    } catch (err) {
+        alert("Error de conexión: " + err.message);
+        cerrarModalPassword();
+    }
+}
+
+		
+</script>
+    <script src="turnix-theme.js"></script>
+</body>
+</html>

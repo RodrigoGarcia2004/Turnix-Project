@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Turnix · Panel de Administración</title>
+<style>
+  :root{ --bg:#0f172a; --card:#1e293b; --accent:#06b6d4; --danger:#ef4444; --ok:#10b981; --warn:#f59e0b; --muted:#94a3b8; --text:#f1f5f9; --border:#334155; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  .hidden { display:none !important; }
+  header { background: linear-gradient(90deg,#06b6d4,#0891b2); padding: 18px 28px; display:flex;justify-content:space-between;align-items:center; }
+  header h1 { margin:0; font-size:22px; }
+  header .right { display:flex; align-items:center; gap:14px; font-size:13px; }
+  button { cursor:pointer; border:none; padding:10px 16px; border-radius:8px; font-weight:bold; font-size:14px; }
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-danger { background: var(--danger); color: white; }
+  .btn-ok { background: var(--ok); color: white; }
+  .btn-secondary { background: #475569; color: white; }
+  .container { padding: 28px; max-width: 1200px; margin: 0 auto; }
+  .login-card { max-width: 420px; margin: 80px auto; background: var(--card); border-radius: 16px; padding: 36px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); border: 1px solid var(--border); }
+  .login-card h2 { margin: 0 0 18px; color: var(--accent); }
+  input { width:100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); background: #0f172a; color: var(--text); font-size: 14px; margin-bottom: 10px; }
+  .tabs { display:flex; gap:8px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+  .tab { padding: 12px 18px; cursor:pointer; color: var(--muted); border-bottom: 3px solid transparent; }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 12px; overflow: hidden; }
+  th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; }
+  th { background: #0f172a; color: var(--accent); font-weight: bold; text-transform: uppercase; font-size: 11px; letter-spacing: 1px; }
+  tr:hover { background: rgba(6,182,212,0.05); }
+  .role-badge { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+  .role-ADMIN { background: #f59e0b; color: #422006; }
+  .role-MEDICO { background: #06b6d4; color: #083344; }
+  .role-PACIENTE { background: #10b981; color: #064e3b; }
+  .estado-PENDIENTE { color: var(--warn); }
+  .estado-APROBADA { color: var(--ok); }
+  .estado-RECHAZADA, .estado-CANCELADA { color: var(--danger); }
+  .err { color: var(--danger); font-size: 13px; margin-bottom: 10px; }
+  .btn-warn { background: var(--warn); color: #422006; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 100; }
+  .modal-card { background: var(--card); padding: 30px; border-radius: 14px; max-width: 520px; width: 90%; max-height: 90vh; overflow-y: auto; }
+  .modal-card label { display:block; font-size:12px; font-weight:bold; color:var(--muted); margin: 10px 0 4px; }
+  .modal-card select { width:100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); background: #0f172a; color: var(--text); font-size: 14px; margin-bottom: 4px; }
+</style>
+    <link rel="stylesheet" href="turnix-theme.css">
+</head>
+<body>
+<!-- LOGIN -->
+<div id="admin-login" class="login-card">
+  <h2>🛡️ Panel de Administración</h2>
+  <p style="color: var(--muted); font-size: 13px;">Solo personal autorizado. Tu sesión requiere reautenticación para cada acción crítica.</p>
+  <input id="adm-user" placeholder="Usuario administrador">
+  <input id="adm-pass" type="password" placeholder="Contraseña">
+  <div id="adm-err" class="err hidden"></div>
+  <button class="btn-primary" style="width:100%;" onclick="adminLogin()">Acceder</button>
+  <p style="text-align:center;margin-top:14px;"><a href="/" style="color:var(--muted);font-size:12px;">← Volver a Turnix</a></p>
+</div>
+
+<!-- PANEL -->
+<div id="admin-panel" class="hidden">
+  <header>
+    <h1>🛡️ Turnix · Administración</h1>
+    <div class="right">
+      <span>Conectado como <b id="adm-current"></b></span>
+      <button class="btn-secondary" onclick="adminLogout()">Cerrar sesión</button>
+    </div>
+  </header>
+  <div class="container">
+    <div class="tabs">
+      <div class="tab active" onclick="adminTab('users')" id="t-users">👥 Usuarios</div>
+      <div class="tab" onclick="adminTab('specs')" id="t-specs">📨 Solicitudes de especialidad</div>
+      <div class="tab" onclick="adminTab('conn')" id="t-conn" data-testid="tab-conn">⏱ Historial de conexiones</div>
+    </div>
+
+    <div id="pane-users">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <h3 style="margin:0;">Lista de usuarios</h3>
+        <button class="btn-primary" onclick="cargarUsuarios()">↻ Refrescar</button>
+      </div>
+      <table>
+        <thead><tr><th>ID</th><th>Usuario</th><th>Nombre completo</th><th>Email</th><th>Rol</th><th>Especialidad</th><th>Verificado</th><th>Acción</th></tr></thead>
+        <tbody id="tbl-users"><tr><td colspan="8" style="text-align:center;padding:30px;color:var(--muted);">Cargando...</td></tr></tbody>
+      </table>
+    </div>
+
+    <div id="pane-specs" class="hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <h3 style="margin:0;">Solicitudes de cambio de especialidad</h3>
+        <button class="btn-primary" onclick="cargarSolicitudes()">↻ Refrescar</button>
+      </div>
+      <table>
+        <thead><tr><th>#</th><th>Médico</th><th>Email</th><th>Actual</th><th>Solicita</th><th>Motivo</th><th>Estado</th><th>Fecha</th><th>Acción</th></tr></thead>
+        <tbody id="tbl-specs"><tr><td colspan="9" style="text-align:center;padding:30px;color:var(--muted);">Cargando...</td></tr></tbody>
+      </table>
+    </div>
+
+    <div id="pane-conn" class="hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:14px;flex-wrap:wrap;">
+        <h3 style="margin:0;">Historial de conexiones de médicos / administradores</h3>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <select id="conn-rango" data-testid="conn-rango" onchange="onCambioRango()" style="width:auto;margin:0;">
+            <option value="week">Última semana</option>
+            <option value="month" selected>Último mes (30d)</option>
+            <option value="all">Todo</option>
+            <option value="custom">Mes específico…</option>
+          </select>
+          <select id="conn-mes" data-testid="conn-mes" onchange="cargarConexiones()" style="width:auto;margin:0;display:none;">
+            <option value="">— mes —</option>
+          </select>
+          <button class="btn-primary" onclick="cargarConexiones()">↻ Refrescar</button>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start;">
+        <div>
+          <h4 style="margin:6px 0 10px;color:var(--accent);">📊 Resumen por usuario</h4>
+          <table>
+            <thead><tr><th>Usuario</th><th>Rol</th><th>Sesiones</th><th>Tiempo total</th><th>Activa</th></tr></thead>
+            <tbody id="tbl-conn-resumen"><tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted);">—</td></tr></tbody>
+          </table>
+        </div>
+        <div>
+          <h4 style="margin:6px 0 10px;color:var(--accent);">🕒 Sesiones (más recientes primero)</h4>
+          <table>
+            <thead><tr><th>Usuario</th><th>Inicio</th><th>Fin</th><th>Duración</th></tr></thead>
+            <tbody id="tbl-conn-list"><tr><td colspan="4" style="text-align:center;padding:20px;color:var(--muted);">—</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR USUARIO -->
+<div id="modal-edit" class="modal-overlay hidden">
+  <div class="modal-card">
+    <h3 style="margin:0 0 10px;color:var(--accent);">✏️ Editar usuario <span id="edit-uid" style="color:var(--muted);font-size:13px;"></span></h3>
+    <p style="color: var(--muted); font-size:13px;">Cambia los datos del usuario. Deja la contraseña vacía para no cambiarla.</p>
+    <label>Usuario</label>
+    <input id="edit-usuario" data-testid="edit-usuario">
+    <label>Nombre</label>
+    <input id="edit-nombre" data-testid="edit-nombre">
+    <label>Nombre completo</label>
+    <input id="edit-nombre-completo" data-testid="edit-nombre-completo">
+    <label>Email</label>
+    <input id="edit-email" type="email" data-testid="edit-email">
+    <label>Rol</label>
+    <select id="edit-rol" data-testid="edit-rol">
+      <option value="PACIENTE">PACIENTE</option>
+      <option value="MEDICO">MEDICO</option>
+      <option value="ADMIN">ADMIN</option>
+    </select>
+    <label>Especialidad (solo médicos)</label>
+    <input id="edit-especialidad" data-testid="edit-especialidad">
+    <label>Nueva contraseña <small style="color:var(--muted);">(opcional)</small></label>
+    <input id="edit-password" type="text" placeholder="Dejar vacío para no cambiar" data-testid="edit-password">
+    <label style="display:flex;align-items:center;gap:8px;color:var(--text);margin-top:12px;">
+      <input type="checkbox" id="edit-verificado" data-testid="edit-verificado" style="width:auto;margin:0;"> Email verificado
+    </label>
+    <label>Tu contraseña de administrador <small style="color:var(--danger);">*</small></label>
+    <input id="edit-adminpass" type="password" placeholder="Tu contraseña de admin" data-testid="edit-adminpass">
+    <div id="edit-err" class="err hidden"></div>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn-secondary" style="flex:1;" onclick="cerrarEdit()">Cancelar</button>
+      <button class="btn-primary" style="flex:1;" onclick="confirmarEdicion()" data-testid="confirm-edit">💾 Guardar cambios</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CONFIRMACIÓN BORRADO -->
+<div id="modal-del" class="modal-overlay hidden">
+  <div class="modal-card">
+    <h3 style="margin:0 0 10px;color:var(--danger);">⚠️ Confirmar borrado</h3>
+    <p style="color: var(--muted); font-size:13px;">Vas a eliminar <b id="del-target">—</b>. Esta acción no se puede deshacer. Reingresá tu password de admin:</p>
+    <input id="del-pass" type="password" placeholder="Tu contraseña de administrador">
+    <div id="del-err" class="err hidden"></div>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn-secondary" style="flex:1;" onclick="cerrarDel()">Cancelar</button>
+      <button class="btn-danger" style="flex:1;" onclick="confirmarBorrado()">🗑 Borrar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  
+  let admCreds = null; // {admin_usuario, admin_password}
+  let pendingDelete = null;
+
+  async function adminLogin() {
+    const u = document.getElementById('adm-user').value.trim();
+    const p = document.getElementById('adm-pass').value;
+    const err = document.getElementById('adm-err');
+    err.classList.add('hidden');
+    if (!u || !p) { err.textContent = 'Completa usuario y contraseña.'; err.classList.remove('hidden'); return; }
+    try {
+      const r = await fetch('/api/admin/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({admin_usuario: u, admin_password: p})});
+      if (!r.ok) { const j = await r.json(); err.textContent = j.detail || 'Acceso denegado'; err.classList.remove('hidden'); return; }
+      admCreds = {admin_usuario: u, admin_password: p};
+      document.getElementById('admin-login').classList.add('hidden');
+      document.getElementById('admin-panel').classList.remove('hidden');
+      document.getElementById('adm-current').textContent = u;
+      cargarUsuarios();
+    } catch(e) { err.textContent = 'Error: ' + e.message; err.classList.remove('hidden'); }
+  }
+  function adminLogout() {
+    admCreds = null;
+    document.getElementById('admin-panel').classList.add('hidden');
+    document.getElementById('admin-login').classList.remove('hidden');
+    document.getElementById('adm-user').value = '';
+    document.getElementById('adm-pass').value = '';
+  }
+  function adminTab(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('t-'+name).classList.add('active');
+    document.getElementById('pane-users').classList.toggle('hidden', name !== 'users');
+    document.getElementById('pane-specs').classList.toggle('hidden', name !== 'specs');
+    document.getElementById('pane-conn').classList.toggle('hidden', name !== 'conn');
+    if (name === 'specs') cargarSolicitudes();
+    else if (name === 'conn') { popularMesesConexion(); cargarConexiones(); }
+    else cargarUsuarios();
+  }
+  async function cargarUsuarios() {
+    if (!admCreds) return;
+    const tbody = document.getElementById('tbl-users');
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--muted);">Cargando...</td></tr>';
+    const r = await fetch('/api/admin/users', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(admCreds)});
+    const users = await r.json();
+    tbody.innerHTML = users.map(u => {
+      const safeUsuario = (u.usuario||'').replace(/'/g,"\\'");
+      const actions = u.rol === 'ADMIN'
+        ? `<button class="btn-warn" data-testid="edit-${u.id}" onclick='abrirEdit(${JSON.stringify(u)})'>✏️ Editar</button> <span style="color:var(--muted);font-size:11px;">borrado protegido</span>`
+        : `<button class="btn-warn" data-testid="edit-${u.id}" onclick='abrirEdit(${JSON.stringify(u)})'>✏️ Editar</button> <button class="btn-danger" data-testid="del-${u.id}" onclick="abrirDel(${u.id},'${safeUsuario}','${u.rol}')">🗑 Borrar</button>`;
+      return `
+      <tr>
+        <td>${u.id}</td>
+        <td><b>${u.usuario}</b></td>
+        <td>${u.nombre_completo || u.nombre || '—'}</td>
+        <td>${u.email || '—'}</td>
+        <td><span class="role-badge role-${u.rol}">${u.rol}</span></td>
+        <td>${u.especialidad || '—'}</td>
+        <td>${u.email_verificado ? '✅' : '⚠️'}</td>
+        <td style="white-space:nowrap;">${actions}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ============== EDITAR USUARIO ==============
+  let pendingEdit = null;
+
+  function abrirEdit(u) {
+    pendingEdit = u;
+    document.getElementById('edit-uid').textContent = `#${u.id}`;
+    document.getElementById('edit-usuario').value = u.usuario || '';
+    document.getElementById('edit-nombre').value = u.nombre || '';
+    document.getElementById('edit-nombre-completo').value = u.nombre_completo || '';
+    document.getElementById('edit-email').value = u.email || '';
+    document.getElementById('edit-rol').value = u.rol || 'PACIENTE';
+    document.getElementById('edit-especialidad').value = u.especialidad || '';
+    document.getElementById('edit-password').value = '';
+    document.getElementById('edit-verificado').checked = !!u.email_verificado;
+    document.getElementById('edit-adminpass').value = '';
+    document.getElementById('edit-err').classList.add('hidden');
+    document.getElementById('modal-edit').classList.remove('hidden');
+  }
+  function cerrarEdit() {
+    document.getElementById('modal-edit').classList.add('hidden');
+    pendingEdit = null;
+  }
+  async function confirmarEdicion() {
+    if (!pendingEdit) return;
+    const err = document.getElementById('edit-err');
+    err.classList.add('hidden');
+    const adminPass = document.getElementById('edit-adminpass').value;
+    if (!adminPass) { err.textContent = 'Introduce tu contraseña de administrador.'; err.classList.remove('hidden'); return; }
+    const body = {
+      admin_usuario: admCreds.admin_usuario,
+      admin_password: adminPass,
+      target_user_id: pendingEdit.id,
+      usuario: document.getElementById('edit-usuario').value.trim(),
+      nombre: document.getElementById('edit-nombre').value.trim(),
+      nombre_completo: document.getElementById('edit-nombre-completo').value.trim(),
+      email: document.getElementById('edit-email').value.trim(),
+      rol: document.getElementById('edit-rol').value,
+      especialidad: document.getElementById('edit-especialidad').value.trim(),
+      email_verificado: document.getElementById('edit-verificado').checked,
+    };
+    const newPass = document.getElementById('edit-password').value;
+    if (newPass) body.password = newPass;
+    try {
+      const r = await fetch('/api/admin/edit-user', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(()=>({detail:'Error'}));
+        err.textContent = j.detail || 'Error';
+        err.classList.remove('hidden');
+        return;
+      }
+      cerrarEdit();
+      cargarUsuarios();
+    } catch (e) {
+      err.textContent = 'Error: ' + e.message;
+      err.classList.remove('hidden');
+    }
+  }
+  function abrirDel(id, usuario, rol) {
+    pendingDelete = id;
+    document.getElementById('del-target').textContent = `${usuario} (${rol})`;
+    document.getElementById('del-pass').value = '';
+    document.getElementById('del-err').classList.add('hidden');
+    document.getElementById('modal-del').classList.remove('hidden');
+  }
+  function cerrarDel() {
+    document.getElementById('modal-del').classList.add('hidden');
+    pendingDelete = null;
+  }
+  async function confirmarBorrado() {
+    const pass = document.getElementById('del-pass').value;
+    const err = document.getElementById('del-err');
+    err.classList.add('hidden');
+    if (!pass) { err.textContent='Introduce tu password.'; err.classList.remove('hidden'); return; }
+    try {
+      const r = await fetch('/api/admin/delete-user', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({admin_usuario: admCreds.admin_usuario, admin_password: pass, target_user_id: pendingDelete})});
+      if (!r.ok) { const j = await r.json(); err.textContent = j.detail || 'Error'; err.classList.remove('hidden'); return; }
+      cerrarDel();
+      cargarUsuarios();
+    } catch(e) { err.textContent = 'Error: ' + e.message; err.classList.remove('hidden'); }
+  }
+  async function cargarSolicitudes() {
+    if (!admCreds) return;
+    const tbody = document.getElementById('tbl-specs');
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:30px;color:var(--muted);">Cargando...</td></tr>';
+    const r = await fetch('/api/admin/specialty-requests', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(admCreds)});
+    const reqs = await r.json();
+    if (!reqs.length) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:30px;color:var(--muted);">Sin solicitudes.</td></tr>'; return; }
+    tbody.innerHTML = reqs.map(s => `
+      <tr>
+        <td>#${s.id}</td>
+        <td><b>${s.medico_nombre || s.medico_usuario}</b><br><small style="color:var(--muted)">${s.medico_usuario}</small></td>
+        <td>${s.medico_email || '—'}</td>
+        <td>${s.especialidad_actual || '—'}</td>
+        <td><b style="color:var(--accent);">${s.especialidad_nueva}</b></td>
+        <td style="max-width:200px;">${s.motivo || '—'}</td>
+        <td class="estado-${s.estado}">${s.estado}</td>
+        <td>${new Date(s.fecha_solicitud).toLocaleString()}</td>
+        <td>${s.estado === 'PENDIENTE' ? `<button class="btn-ok" onclick="accionSolicitud(${s.id},'APROBADA')">✓</button> <button class="btn-danger" onclick="accionSolicitud(${s.id},'RECHAZADA')">✕</button>` : '—'}</td>
+      </tr>`).join('');
+  }
+  async function accionSolicitud(id, action) {
+    const r = await fetch('/api/admin/specialty-action', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({...admCreds, request_id: id, action})});
+    if (r.ok) cargarSolicitudes();
+    else { const j = await r.json(); alert(j.detail || 'Error'); }
+  }
+
+  // ============== HISTORIAL DE CONEXIONES ==============
+  const MESES_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+  function popularMesesConexion() {
+    const sel = document.getElementById('conn-mes');
+    if (sel.options.length > 1) return;
+    const ahora = new Date();
+    // Ultimos 12 meses
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(ahora.getFullYear(), ahora.getMonth() - i, 1);
+      const y = d.getFullYear(), m = d.getMonth();
+      const desde = `${y}-${String(m+1).padStart(2,'0')}-01`;
+      const next = new Date(y, m+1, 1);
+      const hasta = `${next.getFullYear()}-${String(next.getMonth()+1).padStart(2,'0')}-01`;
+      const opt = document.createElement('option');
+      opt.value = `${desde}|${hasta}`;
+      opt.textContent = `${MESES_ES[m]} ${y}`;
+      sel.appendChild(opt);
+    }
+  }
+
+  function onCambioRango() {
+    const rango = document.getElementById('conn-rango').value;
+    document.getElementById('conn-mes').style.display = (rango === 'custom') ? 'inline-block' : 'none';
+    if (rango !== 'custom') cargarConexiones();
+  }
+
+  function fmtFecha(iso) {
+    if (!iso) return '<span style="color:var(--ok);">● en curso</span>';
+    const d = new Date(iso);
+    return d.toLocaleString('es-ES', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  }
+  function fmtDuracion(secs) {
+    if (secs == null) return '—';
+    secs = Math.max(0, Math.floor(secs));
+    const d = Math.floor(secs/86400), h = Math.floor((secs%86400)/3600), m = Math.floor((secs%3600)/60);
+    if (d > 0) return `${d}d ${h}h ${m}m`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m ${secs%60}s`;
+  }
+
+  async function cargarConexiones() {
+    if (!admCreds) return;
+    const rango = document.getElementById('conn-rango').value;
+    const body = {...admCreds, range: rango};
+    if (rango === 'custom') {
+      const v = document.getElementById('conn-mes').value;
+      if (!v) {
+        document.getElementById('tbl-conn-list').innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--muted);">Selecciona un mes.</td></tr>';
+        document.getElementById('tbl-conn-resumen').innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted);">—</td></tr>';
+        return;
+      }
+      const [desde, hasta] = v.split('|');
+      // hasta = primer dia del mes siguiente -> backend hace < hasta+1 dia, asi que restamos 1 dia
+      const h = new Date(hasta); h.setDate(h.getDate()-1);
+      body.desde = desde;
+      body.hasta = h.toISOString().slice(0,10);
+    }
+    const r = await fetch('/api/admin/conn-history', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) { alert('Error cargando historial'); return; }
+    const j = await r.json();
+
+    // Resumen
+    const tbRes = document.getElementById('tbl-conn-resumen');
+    if (!j.resumen.length) {
+      tbRes.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted);">Sin datos en este rango.</td></tr>';
+    } else {
+      tbRes.innerHTML = j.resumen.map(u => `
+        <tr data-testid="resumen-${u.usuario_id}">
+          <td><b>${u.nombre_completo || u.usuario}</b><br><small style="color:var(--muted)">${u.usuario}</small></td>
+          <td><span class="role-badge role-${u.rol}">${u.rol}</span></td>
+          <td>${u.total_sesiones}</td>
+          <td><b>${fmtDuracion(u.total_seg)}</b></td>
+          <td>${u.activa ? '<span style="color:var(--ok);">●</span>' : '—'}</td>
+        </tr>`).join('');
+    }
+
+    // Sesiones
+    const tbList = document.getElementById('tbl-conn-list');
+    if (!j.sesiones.length) {
+      tbList.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--muted);">Sin sesiones en este rango.</td></tr>';
+    } else {
+      tbList.innerHTML = j.sesiones.map(s => `
+        <tr>
+          <td><b>${s.nombre_completo || s.usuario}</b><br><small style="color:var(--muted)">${s.rol}</small></td>
+          <td>${fmtFecha(s.fecha_inicio)}</td>
+          <td>${fmtFecha(s.fecha_fin)}</td>
+          <td>${s.activa ? '<b style="color:var(--ok);">' + fmtDuracion(s.duracion_seg) + '</b>' : fmtDuracion(s.duracion_seg)}</td>
+        </tr>`).join('');
+    }
+  }
+</script>
+    <script src="turnix-theme.js"></script>
+</body>
+</html>
