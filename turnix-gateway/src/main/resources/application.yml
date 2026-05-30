@@ -1,0 +1,59 @@
+server:
+  port: ${PORT:8080}
+  forward-headers-strategy: framework
+
+spring:
+  application:
+    name: turnix-gateway
+  cloud:
+    gateway:
+      default-filters:
+        - AddResponseHeader=X-Powered-By, Turnix-Gateway
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowed-origin-patterns: "*"
+            allowed-methods: "*"
+            allowed-headers: "*"
+            allow-credentials: true
+      routes:
+        # ===== API REST del backend =====
+        - id: turnix-api
+          uri: ${BACKEND_URL:http://localhost:8001}
+          predicates:
+            - Path=/api/**
+
+        # ===== WebSockets (chat / notificaciones) =====
+        - id: turnix-ws
+          uri: ${BACKEND_URL_WS:ws://localhost:8001}
+          predicates:
+            - Path=/ws/**
+
+        # ===== Frontend estatico (HTML, CSS, JS, imagenes) =====
+        - id: turnix-frontend
+          uri: ${BACKEND_URL:http://localhost:8001}
+          predicates:
+            - Path=/**
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+  info:
+    env:
+      enabled: true
+
+info:
+  app:
+    name: Turnix Gateway
+    description: Puerta de entrada del sistema Turnix Salud
+    version: 1.0.0
+
+logging:
+  level:
+    root: INFO
+    org.springframework.cloud.gateway: INFO
