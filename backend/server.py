@@ -398,9 +398,9 @@ async def auth_login(body: LoginIn):
     """Login REST para el portal del paciente (PDF historial). Solo PACIENTE."""
     async with app.state.pool.acquire() as conn:
         row = await conn.fetchrow(
-            """SELECT id, nombre, usuario, rol::text AS rol, email, nombre_completo,
+            """SELECT id, nombre, usuario, rol::text AS rol, correo_electronico AS email, nombre_completo,
                       foto_base64
-                 FROM usuarios WHERE usuario=$1 AND password=$2""",
+                 FROM usuarios WHERE usuario=$1 AND contraseña=$2""",
             body.usuario, body.password,
         )
     if not row:
@@ -430,7 +430,7 @@ async def save_profile(body: PhotoIn):
     """Guarda foto y/o nombre/password del usuario. Requiere su password actual."""
     async with app.state.pool.acquire() as conn:
         actual = await conn.fetchval(
-            "SELECT password FROM usuarios WHERE id=$1", body.user_id
+            "SELECT contraseña FROM usuarios WHERE id=$1", body.user_id
         )
         if actual is None:
             raise HTTPException(404, "Usuario no encontrado")
@@ -444,7 +444,7 @@ async def save_profile(body: PhotoIn):
         if body.nombre:
             sets.append(f"nombre_completo=${i}"); params.append(body.nombre); i += 1
         if body.nueva_password:
-            sets.append(f"password=${i}"); params.append(body.nueva_password); i += 1
+            sets.append(f"contraseña=${i}"); params.append(body.nueva_password); i += 1
         if not sets:
             return {"ok": True, "changed": 0}
         params.append(body.user_id)
@@ -457,7 +457,7 @@ async def save_profile(body: PhotoIn):
 async def get_profile(user_id: int):
     async with app.state.pool.acquire() as conn:
         row = await conn.fetchrow(
-            """SELECT id, usuario, nombre, nombre_completo, email, foto_base64,
+            """SELECT id, usuario, nombre, nombre_completo, correo_electronico AS email, foto_base64,
                       especialidad, rol::text AS rol
                  FROM usuarios WHERE id=$1""", user_id,
         )
@@ -706,7 +706,7 @@ def _build_pdf_table(data):
 async def buscar_usuario(nombre: str):
     async with app.state.pool.acquire() as conn:
         row = await conn.fetchrow(
-            """SELECT id, usuario, nombre_completo, rol::text AS rol, email
+            """SELECT id, usuario, nombre_completo, rol::text AS rol, correo_electronico AS email
                  FROM usuarios
                 WHERE usuario=$1 OR nombre_completo=$1 OR nombre=$1
                 ORDER BY (usuario=$1) DESC LIMIT 1""",
@@ -739,7 +739,7 @@ async def recetas_crear(body: RecetaCreate):
         raise HTTPException(400, "Nombre de la receta y motivo son obligatorios")
     async with app.state.pool.acquire() as conn:
         medico = await conn.fetchrow(
-            """SELECT id, password, rol::text AS rol FROM usuarios WHERE id=$1""",
+            """SELECT id, contraseña AS password, rol::text AS rol FROM usuarios WHERE id=$1""",
             body.medico_id,
         )
         if not medico or medico["rol"] != "MEDICO":
@@ -954,7 +954,7 @@ async def auth_register_init(body: RegisterInit):
             raise HTTPException(409, "Ese usuario ya existe")
         row = await conn.fetchrow(
             """INSERT INTO usuarios
-                (nombre, usuario, password, rol, nombre_completo, email,
+                (nombre, usuario, contraseña, rol, nombre_completo, correo_electronico,
                  email_verificado, codigo_verif, codigo_expira)
                VALUES ($1, $2, $3, 'PACIENTE'::rol_usuario, $4, $5,
                        FALSE, $6, NOW() + INTERVAL '15 minutes')
@@ -1011,7 +1011,7 @@ async def auth_resend(body: ResendCode):
             """UPDATE usuarios SET codigo_verif=$1,
                                    codigo_expira=NOW() + INTERVAL '15 minutes'
                 WHERE usuario=$2 AND email_verificado=FALSE
-                RETURNING id, email, nombre_completo""",
+                RETURNING id, correo_electronico AS email, nombre_completo""",
             codigo, body.usuario,
         )
     if not row:
@@ -1160,7 +1160,7 @@ class EspecialidadReq(BaseModel):
 async def solicitar_especialidad(body: EspecialidadReq):
     async with app.state.pool.acquire() as conn:
         m = await conn.fetchrow(
-            """SELECT id, especialidad, password, rol::text AS rol
+            """SELECT id, especialidad, contraseña AS password, rol::text AS rol
                  FROM usuarios WHERE id=$1""", body.medico_id,
         )
         if not m or m["rol"] != "MEDICO":
@@ -1187,7 +1187,7 @@ async def _check_admin(usuario: str, password: str) -> int:
     async with app.state.pool.acquire() as conn:
         row = await conn.fetchrow(
             """SELECT id FROM usuarios
-                WHERE usuario=$1 AND password=$2 AND rol='ADMIN'""",
+                WHERE usuario=$1 AND contraseña=$2 AND rol='ADMIN'""",
             usuario, password,
         )
     if not row:
@@ -1211,7 +1211,7 @@ async def admin_users(body: AdminCreds):
     await _check_admin(body.admin_usuario, body.admin_password)
     async with app.state.pool.acquire() as conn:
         rows = await conn.fetch(
-            """SELECT id, usuario, nombre, nombre_completo, email,
+            """SELECT id, usuario, nombre, nombre_completo, correo_electronico AS email,
                       rol::text AS rol, especialidad, email_verificado,
                       total_votos, suma_valoraciones, fecha_creacion
                  FROM usuarios ORDER BY id ASC"""
@@ -1290,10 +1290,10 @@ async def admin_edit(body: AdminEditUser):
     if body.usuario is not None:          add("usuario", body.usuario.strip())
     if body.nombre is not None:           add("nombre", body.nombre.strip())
     if body.nombre_completo is not None:  add("nombre_completo", body.nombre_completo.strip())
-    if body.email is not None:            add("email", body.email.strip())
+    if body.email is not None:            add("correo_electronico", body.email.strip())
     if body.rol is not None:              add("rol", body.rol, "::rol_usuario")
     if body.especialidad is not None:     add("especialidad", body.especialidad.strip() or None)
-    if body.password:                     add("password", body.password)
+    if body.password:                     add("contraseña", body.password)
     if body.email_verificado is not None: add("email_verificado", body.email_verificado)
     if not sets:
         return {"ok": True, "changed": 0}
@@ -1346,27 +1346,7 @@ async def admin_conn_history(body: AdminConnHistoryReq):
     sql = f"""
         SELECT s.id, s.usuario_id, s.rol,
                s.fecha_inicio, s.fecha_fin, s.duracion_seg,
-               u.usuario, u.nombre_completo, u.@api.post("/auth/forgot-password")
-async def auth_forgot(body: ForgotInit):
-    email = body.email.strip().lower()
-    if not email:
-        raise HTTPException(400, "Email requerido")
-    codigo = _gen_codigo()
-    async with app.state.pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """UPDATE usuarios
-                  SET codigo_verif = $1,
-                      codigo_expira = NOW() + INTERVAL '15 minutes'
-                WHERE LOWER(correo_electronico) = $2
-                RETURNING id, correo_electronico, nombre_completo, usuario""",
-            codigo, email,
-        )
-    if not row:
-        # No exponer si el email existe (anti enumeracion). Devolvemos OK igualmente.
-        log.info("Forgot-password para email desconocido: %s", email)
-        return {"ok": True}
-    await enviar_codigo_reset(row["correo_electronico"], codigo, row["nombre_completo"] or row["usuario"])
-    return {"ok": True}, u.especialidad,
+               u.usuario, u.nombre_completo, u.rol::text AS rol, u.especialidad,
                (s.fecha_fin IS NULL) AS activa
           FROM sesiones_conexion s
           JOIN usuarios u ON u.id = s.usuario_id
@@ -1563,10 +1543,10 @@ async def handle_message(ws: WebSocket, message: str):
         try:
             async with pool.acquire() as conn:
                 row = await conn.fetchrow(
-                    """SELECT id, nombre, usuario, rol::text AS rol, email, nombre_completo,
+                    """SELECT id, nombre, usuario, rol::text AS rol, correo_electronico AS email, nombre_completo,
                               especialidad,
                               COALESCE(suma_valoraciones,0) AS suma, COALESCE(total_votos,0) AS total
-                         FROM usuarios WHERE usuario=$1 AND password=$2""",
+                         FROM usuarios WHERE usuario=$1 AND contraseña=$2""",
                     username, password,
                 )
             if row:

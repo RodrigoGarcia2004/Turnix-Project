@@ -1140,7 +1140,12 @@ async function confirmarRecetaConPassword() {
             body: JSON.stringify(recetaPendiente)
         });
 
-        const data = await res.json();
+        // Parseamos defensivamente: si el server devuelve texto/HTML
+        // (p.ej. "Internal Server Error") evitamos el fallo en res.json()
+        const raw = await res.text();
+        let data = {};
+        try { data = raw ? JSON.parse(raw) : {}; }
+        catch (_) { data = { detail: raw || `HTTP ${res.status}` }; }
 
         if (res.ok && (data.ok === true || data.success === true)) {
             // ÉXITO
@@ -1151,7 +1156,7 @@ async function confirmarRecetaConPassword() {
             recetaPendiente = null;
         } else {
             // Error real
-            alert("Error: " + (data.detail || JSON.stringify(data)));
+            alert("Error: " + (data.detail || raw || `HTTP ${res.status}`));
             cerrarModalPassword();
         }
     } catch (err) {
