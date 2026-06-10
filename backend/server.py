@@ -977,12 +977,12 @@ async def auth_register_init(body: RegisterInit):
         existe = await conn.fetchval("SELECT 1 FROM usuarios WHERE usuario=$1", body.usuario)
         if existe:
             raise HTTPException(409, "Ese usuario ya existe")
-        row = await conn.fetchrow(
+         row = await conn.fetchrow(
             """INSERT INTO usuarios
-                (nombre, usuario, contraseña, rol, nombre_completo, correo_electronico,
-                 email_verificado, codigo_verif, codigo_expira)
+                (nombre, usuario, password, rol, nombre_completo, email,
+                 email_verificado, codigo_verif, codigo_expira, activo)
                VALUES ($1, $2, $3, 'PACIENTE'::rol_usuario, $4, $5,
-                       FALSE, $6, NOW() + INTERVAL '15 minutes')
+                       FALSE, $6, NOW() + INTERVAL '15 minutes', TRUE)
                RETURNING id""",
             body.nombre_completo, body.usuario, body.password,
             body.nombre_completo, body.email, codigo,
